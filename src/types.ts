@@ -35,6 +35,17 @@ export interface WallFinish {
   textureId?: string;
 }
 
+export interface WallOpening {
+  id: string;
+  roomId: string;
+  wallIndex: number;
+  kind: 'door' | 'window';
+  offset: number;
+  width: number;
+  height: number;
+  sillHeight: number;
+}
+
 export interface TextureAsset {
   id: string;
   name: string;
@@ -76,5 +87,6 @@ export interface ProjectDocument {
   floors: PlanFloor[];
   rooms: PlanRoom[];
   wallFinishes: Record<string, WallFinish>;
+  openings: WallOpening[];
   modelInstances: ModelInstance[];
 }

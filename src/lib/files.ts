@@ -1,4 +1,5 @@
-import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, SiteSettings, TextureAsset, WallFinish } from '../types';
+import { roomVertices } from './geometry';
+import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
 export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024;
@@ -48,11 +49,31 @@ function readModel(value: unknown, floorIds: Set<string>): ModelInstance | undef
   return { id: value.id, floorId: value.floorId, assetId: value.assetId, name, x: value.x, y: value.y, z: value.z, rotation: value.rotation, scale: value.scale };
 }
 
+function readOpening(value: unknown, roomsById: Map<string, PlanRoom>): WallOpening | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.roomId !== 'string'
+    || !roomsById.has(value.roomId) || typeof value.wallIndex !== 'number' || !Number.isInteger(value.wallIndex) || !['door', 'window'].includes(String(value.kind))
+    || !finite(value.offset, 0.02, 0.98) || !finite(value.width, 0.25, 5) || !finite(value.height, 0.3, 4)
+    || !finite(value.sillHeight, 0, 3)) return undefined;
+  const room = roomsById.get(value.roomId);
+  if (!room) return undefined;
+  const vertices = roomVertices(room);
+  if (value.wallIndex < 0 || value.wallIndex >= vertices.length) return undefined;
+  const start = vertices[value.wallIndex]; const end = vertices[(value.wallIndex + 1) % vertices.length];
+  if (!start || !end) return undefined;
+  const wallLength = Math.hypot(end[0] - start[0], end[1] - start[1]);
+  const halfOpening = value.width / wallLength / 2;
+  if (value.width > wallLength - 0.12 || value.offset < halfOpening || value.offset > 1 - halfOpening
+    || value.sillHeight + value.height > room.wallHeight - 0.04) return undefined;
+  return { id: value.id, roomId: value.roomId, wallIndex: value.wallIndex, kind: value.kind as WallOpening['kind'],
+    offset: value.offset, width: value.width, height: value.height, sillHeight: value.sillHeight };
+}
+
 export function parseProjectDocument(value: unknown): ProjectDocument {
   if (!isRecord(value) || value.version !== 1 || !['apartment', 'plot'].includes(String(value.projectType)) || !isRecord(value.site)
     || !finite(value.site.width, 4, 200) || !finite(value.site.depth, 4, 200) || !Array.isArray(value.floors)
     || value.floors.length < 1 || value.floors.length > 12 || !Array.isArray(value.rooms) || value.rooms.length > 500
-    || !isRecord(value.wallFinishes) || Object.keys(value.wallFinishes).length > 2_000 || !Array.isArray(value.modelInstances)
+    || !isRecord(value.wallFinishes) || Object.keys(value.wallFinishes).length > 2_000 || (value.openings !== undefined && !Array.isArray(value.openings))
+    || (Array.isArray(value.openings) && value.openings.length > 1_000) || !Array.isArray(value.modelInstances)
     || value.modelInstances.length > 200) throw new Error('Файл планировки имеет неподдерживаемую структуру.');
   const name = text(value.name, 80);
   if (!name) throw new Error('В файле отсутствует название проекта.');
@@ -65,6 +86,12 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (rooms.some((room) => !room)) throw new Error('В файле есть некорректный блок.');
   const validRooms = rooms as PlanRoom[];
   if (new Set(validRooms.map((room) => room.id)).size !== validRooms.length) throw new Error('Идентификаторы блоков повторяются.');
+  const roomsById = new Map(validRooms.map((room) => [room.id, room]));
+  const openings = (Array.isArray(value.openings) ? value.openings : []).map((opening) => readOpening(opening, roomsById));
+  if (openings.some((opening) => !opening)) throw new Error('В файле есть некорректный дверной или оконный проём.');
+  const validOpenings = openings as WallOpening[];
+  if (new Set(validOpenings.map((opening) => opening.id)).size !== validOpenings.length
+    || new Set(validOpenings.map((opening) => wallIdForOpening(opening))).size !== validOpenings.length) throw new Error('Проёмы в файле повторяются.');
   const wallFinishes: Record<string, WallFinish> = {};
   for (const [key, finish] of Object.entries(value.wallFinishes)) {
     if (!idPattern.test(key) || !isRecord(finish) || typeof finish.color !== 'string' || !colorPattern.test(finish.color)) {
@@ -76,13 +103,15 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (models.some((model) => !model)) throw new Error('В файле есть некорректный объект.');
   return { version: 1, name, projectType: value.projectType as ProjectType,
     site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms,
-    wallFinishes, modelInstances: models as ModelInstance[] };
+    wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[] };
 }
 
-export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; wallFinishes: Record<string, WallFinish>; modelInstances: ModelInstance[] }): ProjectDocument {
+const wallIdForOpening = (opening: Pick<WallOpening, 'roomId' | 'wallIndex'>) => `${opening.roomId}:wall:${opening.wallIndex}`;
+
+export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[] }): ProjectDocument {
   const wallFinishes = Object.fromEntries(Object.entries(input.wallFinishes).map(([id, finish]) => [id, { color: finish.color }]));
   return { version: 1, name: input.name, projectType: input.projectType, site: input.site, floors: input.floors,
-    rooms: input.rooms, wallFinishes, modelInstances: input.modelInstances.filter((model) => model.assetId.startsWith('builtin:')) };
+    rooms: input.rooms, wallFinishes, openings: input.openings, modelInstances: input.modelInstances.filter((model) => model.assetId.startsWith('builtin:')) };
 }
 
 export function saveAutosave(document: ProjectDocument) {

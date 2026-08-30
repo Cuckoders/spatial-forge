@@ -16,6 +16,7 @@ export function TopBar() {
       floors: store.floors,
       rooms: store.rooms,
       wallFinishes: store.wallFinishes,
+      openings: store.openings,
       modelInstances: store.modelInstances,
     }));
     store.notify('Файл проекта сохранён');

@@ -5,7 +5,7 @@ import { Color, DoubleSide, RepeatWrapping, Shape, ShapeGeometry, SRGBColorSpace
 
 import { roomVertices, wallId } from '../../lib/geometry';
 import { useEditorStore } from '../../store/editorStore';
-import type { PlanRoom } from '../../types';
+import type { PlanRoom, WallOpening } from '../../types';
 
 interface RoomMeshProps {
   room: PlanRoom;
@@ -26,9 +26,45 @@ function TexturedWallMaterial({ url, color, length, height, opacity }: { url: st
   return <meshStandardMaterial color={new Color(color)} map={texture} roughness={0.82} transparent={opacity < 1} opacity={opacity} />;
 }
 
+function WallSegment({ width, height, x, y, thickness, textureUrl, color, opacity, selected }: { width: number; height: number; x: number; y: number; thickness: number; textureUrl: string | undefined; color: string; opacity: number; selected: boolean }) {
+  if (width <= 0.015 || height <= 0.015) return null;
+  return <mesh castShadow position={[x, y, 0]} receiveShadow>
+    <boxGeometry args={[width, height, thickness]} />
+    {textureUrl ? <Suspense fallback={<meshStandardMaterial color={color} transparent={opacity < 1} opacity={opacity} />}><TexturedWallMaterial color={color} height={height} length={width} opacity={opacity} url={textureUrl} /></Suspense>
+      : <meshStandardMaterial color={color} roughness={0.84} transparent={opacity < 1} opacity={opacity} />}
+    {selected ? <Edges color="#E8FF57" threshold={10} /> : null}
+  </mesh>;
+}
+
+function OpeningDecoration({ opening, center, thickness, active }: { opening: WallOpening; center: number; thickness: number; active: boolean }) {
+  const opacity = active ? 1 : 0.16;
+  const frame = Math.min(0.08, opening.width * 0.08);
+  if (opening.kind === 'door') return <group position={[center - opening.width / 2 + frame, 0, 0]}>
+    <mesh castShadow position={[0, opening.height / 2, 0]}><boxGeometry args={[frame * 2, opening.height, thickness + 0.055]} /><meshStandardMaterial color="#6E513B" opacity={opacity} transparent={opacity < 1} /></mesh>
+    <mesh castShadow position={[opening.width - frame * 2, opening.height / 2, 0]}><boxGeometry args={[frame * 2, opening.height, thickness + 0.055]} /><meshStandardMaterial color="#6E513B" opacity={opacity} transparent={opacity < 1} /></mesh>
+    <mesh castShadow position={[opening.width / 2 - frame, opening.height - frame, 0]}><boxGeometry args={[opening.width, frame * 2, thickness + 0.055]} /><meshStandardMaterial color="#6E513B" opacity={opacity} transparent={opacity < 1} /></mesh>
+    <group rotation={[0, -0.58, 0]}>
+      <mesh castShadow position={[(opening.width - frame * 3) / 2, opening.height / 2 - frame, 0]}>
+        <boxGeometry args={[opening.width - frame * 3, opening.height - frame * 3, 0.055]} />
+        <meshStandardMaterial color="#9B7655" opacity={opacity} roughness={0.78} transparent={opacity < 1} />
+      </mesh>
+    </group>
+  </group>;
+  const middleY = opening.sillHeight + opening.height / 2;
+  return <group position={[center, middleY, 0]}>
+    <mesh position={[0, 0, 0]}><boxGeometry args={[opening.width - frame * 2, opening.height - frame * 2, 0.025]} /><meshPhysicalMaterial color="#A8D3DC" opacity={active ? 0.38 : 0.1} roughness={0.05} transparent transmission={0.25} /></mesh>
+    <mesh castShadow position={[-opening.width / 2 + frame / 2, 0, 0]}><boxGeometry args={[frame, opening.height, thickness + 0.045]} /><meshStandardMaterial color="#EEECE5" opacity={opacity} transparent={opacity < 1} /></mesh>
+    <mesh castShadow position={[opening.width / 2 - frame / 2, 0, 0]}><boxGeometry args={[frame, opening.height, thickness + 0.045]} /><meshStandardMaterial color="#EEECE5" opacity={opacity} transparent={opacity < 1} /></mesh>
+    <mesh castShadow position={[0, -opening.height / 2 + frame / 2, 0]}><boxGeometry args={[opening.width, frame, thickness + 0.045]} /><meshStandardMaterial color="#EEECE5" opacity={opacity} transparent={opacity < 1} /></mesh>
+    <mesh castShadow position={[0, opening.height / 2 - frame / 2, 0]}><boxGeometry args={[opening.width, frame, thickness + 0.045]} /><meshStandardMaterial color="#EEECE5" opacity={opacity} transparent={opacity < 1} /></mesh>
+    <mesh position={[0, 0, 0.01]}><boxGeometry args={[frame * 0.72, opening.height - frame * 2, thickness + 0.05]} /><meshStandardMaterial color="#EEECE5" opacity={opacity} transparent={opacity < 1} /></mesh>
+  </group>;
+}
+
 function Wall({ room, wallIndex, start, end, active, selected }: { room: PlanRoom; wallIndex: number; start: readonly [number, number]; end: readonly [number, number]; active: boolean; selected: boolean }) {
   const finish = useEditorStore((state) => state.wallFinishes[wallId(room.id, wallIndex)]);
   const textureUrl = useEditorStore((state) => finish?.textureId ? state.textures.find((texture) => texture.id === finish.textureId)?.url : undefined);
+  const opening = useEditorStore((state) => state.openings.find((item) => item.roomId === room.id && item.wallIndex === wallIndex));
   const select = useEditorStore((state) => state.select);
   const dx = end[0] - start[0]; const dz = end[1] - start[1];
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
@@ -37,16 +73,23 @@ function Wall({ room, wallIndex, start, end, active, selected }: { room: PlanRoo
     if (!active) return;
     event.stopPropagation(); select({ kind: 'wall', id: wallId(room.id, wallIndex), roomId: room.id, wallIndex });
   };
-  return (
-    <group position={[(start[0] + end[0]) / 2, room.wallHeight / 2 + 0.12, (start[1] + end[1]) / 2]} rotation={[0, -angle, 0]}>
-      <mesh castShadow receiveShadow onClick={choose}>
-        <boxGeometry args={[length, room.wallHeight, room.wallThickness]} />
-        {textureUrl ? <Suspense fallback={<meshStandardMaterial color={color} transparent={opacity < 1} opacity={opacity} />}><TexturedWallMaterial color={color} height={room.wallHeight} length={length} opacity={opacity} url={textureUrl} /></Suspense>
-          : <meshStandardMaterial color={color} roughness={0.84} transparent={opacity < 1} opacity={opacity} />}
-        {selected ? <Edges color="#E8FF57" threshold={10} /> : null}
-      </mesh>
-    </group>
-  );
+  if (!opening) return <group onClick={choose} position={[(start[0] + end[0]) / 2, 0.12, (start[1] + end[1]) / 2]} rotation={[0, -angle, 0]}>
+    <WallSegment color={color} height={room.wallHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={length} x={0} y={room.wallHeight / 2} />
+  </group>;
+  const openingWidth = Math.min(opening.width, Math.max(0.2, length - 0.08));
+  const center = Math.min(length / 2 - openingWidth / 2, Math.max(-length / 2 + openingWidth / 2, -length / 2 + opening.offset * length));
+  const sill = Math.min(opening.sillHeight, Math.max(0, room.wallHeight - 0.3));
+  const openingHeight = Math.min(opening.height, Math.max(0.3, room.wallHeight - sill - 0.03));
+  const leftWidth = center - openingWidth / 2 + length / 2;
+  const rightWidth = length / 2 - center - openingWidth / 2;
+  const topHeight = room.wallHeight - sill - openingHeight;
+  return <group onClick={choose} position={[(start[0] + end[0]) / 2, 0.12, (start[1] + end[1]) / 2]} rotation={[0, -angle, 0]}>
+    <WallSegment color={color} height={room.wallHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={leftWidth} x={-length / 2 + leftWidth / 2} y={room.wallHeight / 2} />
+    <WallSegment color={color} height={room.wallHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={rightWidth} x={length / 2 - rightWidth / 2} y={room.wallHeight / 2} />
+    <WallSegment color={color} height={sill} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={openingWidth} x={center} y={sill / 2} />
+    <WallSegment color={color} height={topHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={openingWidth} x={center} y={sill + openingHeight + topHeight / 2} />
+    <OpeningDecoration active={active} center={center} opening={{ ...opening, width: openingWidth, height: openingHeight, sillHeight: sill }} thickness={room.wallThickness} />
+  </group>;
 }
 
 function TriangleFloor({ room, active, selected, onClick }: { room: PlanRoom; active: boolean; selected: boolean; onClick: (event: ThreeEvent<MouseEvent>) => void }) {

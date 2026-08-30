@@ -1,4 +1,4 @@
-import { Copy, Droplets, Move3D, RotateCw, Ruler, Trash2 } from 'lucide-react';
+import { Copy, DoorOpen, Droplets, Move3D, PanelTop, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
@@ -36,13 +36,21 @@ function RoomInspector({ id }: { id: string }) {
 function WallInspector({ roomId, wallIndex }: { roomId: string; wallIndex: number }) {
   const room = useEditorStore((state) => state.rooms.find((item) => item.id === roomId));
   const finish = useEditorStore((state) => state.wallFinishes[wallId(roomId, wallIndex)]);
+  const opening = useEditorStore((state) => state.openings.find((item) => item.roomId === roomId && item.wallIndex === wallIndex));
   const textures = useEditorStore((state) => state.textures);
   const setWallFinish = useEditorStore((state) => state.setWallFinish);
   const clearWallFinish = useEditorStore((state) => state.clearWallFinish);
+  const addWallOpening = useEditorStore((state) => state.addWallOpening);
+  const updateWallOpening = useEditorStore((state) => state.updateWallOpening);
+  const removeWallOpening = useEditorStore((state) => state.removeWallOpening);
   const color = finish?.color ?? '#E9E4DA';
   if (!room) return <EmptyInspector />;
   return <>
     <div className="inspector-head"><span className="selection-tag">Отдельная стена · грань {wallIndex + 1}</span><h2>{room.name}</h2></div>
+    <section className="inspector-section"><div className="inspector-title"><span>Двери и окна</span>{opening?.kind === 'door' ? <DoorOpen size={16} /> : <PanelTop size={16} />}</div>
+      <div className="opening-choices"><button className={opening?.kind === 'door' ? 'active' : ''} onClick={() => addWallOpening(roomId, wallIndex, 'door')} type="button"><DoorOpen size={17} /> Дверь</button><button className={opening?.kind === 'window' ? 'active' : ''} onClick={() => addWallOpening(roomId, wallIndex, 'window')} type="button"><PanelTop size={17} /> Окно</button></div>
+      {opening ? <div className="opening-fields"><div className="field-row"><NumericField label="Положение" max={98} min={2} onChange={(offset) => updateWallOpening(opening.id, { offset: offset / 100 })} step={1} unit="%" value={opening.offset * 100} /><NumericField label="Ширина" max={5} min={0.25} onChange={(width) => updateWallOpening(opening.id, { width })} unit="м" value={opening.width} /></div><div className="field-row"><NumericField label="Высота" max={4} min={0.3} onChange={(height) => updateWallOpening(opening.id, { height })} unit="м" value={opening.height} />{opening.kind === 'window' ? <NumericField label="Подоконник" max={3} min={0} onChange={(sillHeight) => updateWallOpening(opening.id, { sillHeight })} unit="м" value={opening.sillHeight} /> : <div />}</div><button className="remove-opening" onClick={() => removeWallOpening(opening.id)} type="button"><Trash2 size={14} /> Удалить проём</button></div> : <p className="empty-materials">Добавьте один проём на выбранную грань. Стена автоматически разделится вокруг него.</p>}
+    </section>
     <section className="inspector-section"><div className="inspector-title"><span>Цвет стены</span><Droplets size={16} /></div><label className="color-field"><input onChange={(event) => setWallFinish(roomId, wallIndex, { color: event.target.value, ...(finish?.textureId ? { textureId: finish.textureId } : {}) })} type="color" value={color} /><span>{color.toUpperCase()}</span></label><div className="palette">{['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'].map((item) => <button aria-label={`Цвет ${item}`} className={item.toLowerCase() === color.toLowerCase() && !finish?.textureId ? 'active' : ''} key={item} onClick={() => setWallFinish(roomId, wallIndex, { color: item })} style={{ background: item }} type="button" />)}</div></section>
     <section className="inspector-section"><div className="inspector-title"><span>Текстура обоев</span><BoxIcon /></div>{textures.length ? <div className="texture-grid">{textures.map((texture) => <button className={finish?.textureId === texture.id ? 'active' : ''} key={texture.id} onClick={() => setWallFinish(roomId, wallIndex, { color, textureId: texture.id })} title={texture.name} type="button"><img alt="" src={texture.url} /><span>{texture.name}</span></button>)}</div> : <p className="empty-materials">Сначала загрузите текстуру в панели слева. Она применится только к этой грани.</p>}</section>
     <button className="wide-action" onClick={() => clearWallFinish(roomId, wallIndex)} type="button">Сбросить отделку этой стены</button>

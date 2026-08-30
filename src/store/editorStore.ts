@@ -3,8 +3,8 @@ import { create } from 'zustand';
 import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
-import { normalizeDegrees, snapToGrid, wallId } from '../lib/geometry';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, TextureAsset, WallFinish } from '../types';
+import { normalizeDegrees, roomVertices, snapToGrid, wallId } from '../lib/geometry';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -13,6 +13,7 @@ interface EditorState {
   floors: PlanFloor[];
   rooms: PlanRoom[];
   wallFinishes: Record<string, WallFinish>;
+  openings: WallOpening[];
   textures: TextureAsset[];
   modelAssets: ModelAsset[];
   modelInstances: ModelInstance[];
@@ -36,6 +37,9 @@ interface EditorState {
   removeRoom: (id: string) => void;
   setWallFinish: (roomId: string, wallIndex: number, finish: WallFinish) => void;
   clearWallFinish: (roomId: string, wallIndex: number) => void;
+  addWallOpening: (roomId: string, wallIndex: number, kind: WallOpening['kind']) => void;
+  updateWallOpening: (id: string, patch: Partial<WallOpening>) => void;
+  removeWallOpening: (id: string) => void;
   addFloor: () => void;
   setActiveFloor: (id: string) => void;
   removeActiveFloor: () => void;
@@ -59,7 +63,7 @@ interface EditorState {
   endHistoryBatch: () => void;
 }
 
-type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'wallFinishes' | 'textures' | 'modelAssets' | 'modelInstances' | 'activeFloorId' | 'showAllFloors'>;
+type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'activeFloorId' | 'showAllFloors'>;
 
 const historyPast: HistorySnapshot[] = [];
 const historyFuture: HistorySnapshot[] = [];
@@ -95,6 +99,10 @@ function demoProject(): ProjectDocument {
       [wallId('living', 0)]: { color: '#EEE8DC' }, [wallId('living', 1)]: { color: '#D7E2DA' },
       [wallId('kitchen', 2)]: { color: '#C9D8CE' }, [wallId('bedroom', 0)]: { color: '#DAD4E4' },
     },
+    openings: [
+      { id: 'demo-door', roomId: 'living', wallIndex: 2, kind: 'door', offset: 0.68, width: 0.9, height: 2.1, sillHeight: 0 },
+      { id: 'demo-window', roomId: 'kitchen', wallIndex: 0, kind: 'window', offset: 0.5, width: 1.6, height: 1.15, sillHeight: 0.9 },
+    ],
     modelInstances: [
       { id: 'demo-sofa', floorId: 'floor-1', assetId: 'builtin:sofa', name: 'Диван', x: -2.4, y: 0, z: -1.2, rotation: 0, scale: 1 },
       { id: 'demo-table', floorId: 'floor-1', assetId: 'builtin:table', name: 'Стол', x: 2.2, y: 0, z: -1.3, rotation: 0, scale: 1 },
@@ -116,6 +124,18 @@ function normalizedModel(model: ModelInstance): ModelInstance {
     z: clamp(model.z, -200, 200), rotation: radians(normalizeDegrees(model.rotation * 180 / Math.PI)), scale: clamp(model.scale, 0.05, 20) };
 }
 
+function fitOpeningToRoom(opening: WallOpening, room: PlanRoom): WallOpening | undefined {
+  const vertices = roomVertices(room); const start = vertices[opening.wallIndex]; const end = vertices[(opening.wallIndex + 1) % vertices.length];
+  if (!start || !end || room.wallHeight < 0.34) return undefined;
+  const wallLength = Math.hypot(end[0] - start[0], end[1] - start[1]);
+  if (wallLength < 0.37) return undefined;
+  const width = clamp(opening.width, 0.25, Math.min(5, wallLength - 0.12));
+  const sillHeight = opening.kind === 'door' ? 0 : clamp(opening.sillHeight, 0, Math.max(0, room.wallHeight - 0.34));
+  const height = clamp(opening.height, 0.3, Math.min(4, room.wallHeight - sillHeight - 0.04));
+  const halfOffset = width / wallLength / 2;
+  return { ...opening, width, height, sillHeight, offset: clamp(opening.offset, halfOffset, 1 - halfOffset) };
+}
+
 export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, get) => ({
   projectName: initialProject.name,
   projectType: initialProject.projectType,
@@ -123,6 +143,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   floors: initialProject.floors,
   rooms: initialProject.rooms,
   wallFinishes: initialProject.wallFinishes,
+  openings: initialProject.openings,
   textures: [],
   modelAssets: [],
   modelInstances: initialProject.modelInstances,
@@ -148,14 +169,31 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       floorColor: colors[state.rooms.length % colors.length] ?? '#D8CFBB' };
     return { rooms: [...state.rooms, room], selection: { kind: 'room', id }, tool: 'select', message: 'Блок добавлен на сетку' };
   }),
-  updateRoom: (id, patch) => set((state) => ({ rooms: state.rooms.map((room) => room.id === id ? normalizedRoom({ ...room, ...patch, id: room.id, floorId: room.floorId, shape: room.shape }) : room) })),
+  updateRoom: (id, patch) => set((state) => {
+    let updatedRoom: PlanRoom | undefined;
+    const rooms = state.rooms.map((room) => {
+      if (room.id !== id) return room;
+      updatedRoom = normalizedRoom({ ...room, ...patch, id: room.id, floorId: room.floorId, shape: room.shape });
+      return updatedRoom;
+    });
+    if (!updatedRoom) return state;
+    const nextRoom = updatedRoom;
+    const openings = state.openings.flatMap((opening) => {
+      if (opening.roomId !== id) return [opening];
+      const fitted = fitOpeningToRoom(opening, nextRoom); return fitted ? [fitted] : [];
+    });
+    return { rooms, openings };
+  }),
   duplicateRoom: (id) => set((state) => {
     const source = state.rooms.find((room) => room.id === id); if (!source) return state;
     const copy = { ...source, id: newId('block'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 1, z: source.z + 1 };
-    return { rooms: [...state.rooms, copy], selection: { kind: 'room', id: copy.id }, message: 'Блок скопирован' };
+    const copiedOpenings = state.openings.filter((opening) => opening.roomId === source.id)
+      .map((opening) => ({ ...opening, id: newId('opening'), roomId: copy.id }));
+    return { rooms: [...state.rooms, copy], openings: [...state.openings, ...copiedOpenings], selection: { kind: 'room', id: copy.id }, message: 'Блок скопирован' };
   }),
   removeRoom: (id) => set((state) => ({ rooms: state.rooms.filter((room) => room.id !== id),
     wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => !key.startsWith(`${id}:wall:`))),
+    openings: state.openings.filter((opening) => opening.roomId !== id),
     selection: state.selection?.kind === 'room' && state.selection.id === id || state.selection?.kind === 'wall' && state.selection.roomId === id ? null : state.selection })),
   setWallFinish: (roomId, wallIndex, finish) => set((state) => {
     const color = /^#[0-9a-f]{6}$/i.test(finish.color) ? finish.color : '#E7E1D7';
@@ -165,6 +203,26 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   clearWallFinish: (roomId, wallIndex) => set((state) => {
     const finishes = { ...state.wallFinishes }; delete finishes[wallId(roomId, wallIndex)]; return { wallFinishes: finishes };
   }),
+  addWallOpening: (roomId, wallIndex, kind) => set((state) => {
+    const room = state.rooms.find((item) => item.id === roomId); if (!room) return state;
+    const vertices = roomVertices(room); const start = vertices[wallIndex]; const end = vertices[(wallIndex + 1) % vertices.length];
+    if (!start || !end) return state;
+    const wallLength = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    const width = Math.max(0.25, Math.min(kind === 'door' ? 0.9 : 1.6, wallLength - 0.12));
+    const sillHeight = kind === 'door' ? 0 : Math.min(0.9, Math.max(0.1, room.wallHeight - 0.7));
+    const height = Math.max(0.3, Math.min(kind === 'door' ? 2.1 : 1.2, room.wallHeight - sillHeight - 0.05));
+    const existing = state.openings.find((opening) => opening.roomId === roomId && opening.wallIndex === wallIndex);
+    const opening = fitOpeningToRoom({ id: existing?.id ?? newId('opening'), roomId, wallIndex, kind, offset: 0.5, width, height, sillHeight }, room);
+    if (!opening) return { message: 'Стена слишком мала для проёма' };
+    return { openings: existing ? state.openings.map((item) => item.id === existing.id ? opening : item) : [...state.openings, opening], message: kind === 'door' ? 'Дверной проём добавлен' : 'Оконный проём добавлен' };
+  }),
+  updateWallOpening: (id, patch) => set((state) => ({ openings: state.openings.map((opening) => {
+    if (opening.id !== id) return opening;
+    const room = state.rooms.find((item) => item.id === opening.roomId); if (!room) return opening;
+    return fitOpeningToRoom({ ...opening, width: patch.width ?? opening.width, height: patch.height ?? opening.height,
+      sillHeight: patch.sillHeight ?? opening.sillHeight, offset: patch.offset ?? opening.offset }, room) ?? opening;
+  }) })),
+  removeWallOpening: (id) => set((state) => ({ openings: state.openings.filter((opening) => opening.id !== id), message: 'Проём удалён' })),
   addFloor: () => set((state) => {
     if (state.floors.length >= 12) return { message: 'Можно создать не больше 12 этажей' };
     const floor: PlanFloor = { id: newId('floor'), name: `${state.floors.length + 1} этаж`, elevation: Math.max(...state.floors.map((item) => item.elevation)) + 3.2 };
@@ -177,6 +235,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const removedRoomIds = new Set(state.rooms.filter((room) => room.floorId === state.activeFloorId).map((room) => room.id));
     return { floors: remaining, rooms: state.rooms.filter((room) => room.floorId !== state.activeFloorId),
       wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => ![...removedRoomIds].some((id) => key.startsWith(`${id}:wall:`)))),
+      openings: state.openings.filter((opening) => !removedRoomIds.has(opening.roomId)),
       modelInstances: state.modelInstances.filter((model) => model.floorId !== state.activeFloorId), activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
   }),
   toggleAllFloors: () => set((state) => ({ showAllFloors: !state.showAllFloors })),
@@ -212,12 +271,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   },
   setCameraPreset: (cameraPreset) => set((state) => ({ cameraPreset, cameraRevision: state.cameraRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
-    floors: project.floors, rooms: project.rooms, wallFinishes: project.wallFinishes, modelInstances: project.modelInstances,
+    floors: project.floors, rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
     activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
-      rooms: project.rooms, wallFinishes: project.wallFinishes, modelInstances: project.modelInstances,
+      rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
       activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
@@ -230,14 +289,14 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
 function captureHistory(state: EditorState): HistorySnapshot {
   return {
     projectName: state.projectName, projectType: state.projectType, site: state.site, floors: state.floors,
-    rooms: state.rooms, wallFinishes: state.wallFinishes, textures: state.textures, modelAssets: state.modelAssets,
+    rooms: state.rooms, wallFinishes: state.wallFinishes, openings: state.openings, textures: state.textures, modelAssets: state.modelAssets,
     modelInstances: state.modelInstances, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
   };
 }
 
 function sameHistory(left: HistorySnapshot, right: HistorySnapshot) {
   return left.projectName === right.projectName && left.projectType === right.projectType && left.site === right.site
-    && left.floors === right.floors && left.rooms === right.rooms && left.wallFinishes === right.wallFinishes
+    && left.floors === right.floors && left.rooms === right.rooms && left.wallFinishes === right.wallFinishes && left.openings === right.openings
     && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances
     && left.activeFloorId === right.activeFloorId && left.showAllFloors === right.showAllFloors;
 }
@@ -284,7 +343,7 @@ function redoHistory() {
 lastHistorySnapshot = captureHistory(useEditorStore.getState());
 
 useEditorStore.subscribe(
-  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.wallFinishes, state.textures, state.modelAssets, state.modelInstances, state.activeFloorId, state.showAllFloors] as const,
+  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.activeFloorId, state.showAllFloors] as const,
   () => {
     const current = captureHistory(useEditorStore.getState());
     if (restoringHistory) { restoringHistory = false; lastHistorySnapshot = current; return; }
@@ -301,10 +360,10 @@ useEditorStore.subscribe(
 if (typeof window !== 'undefined') {
   let saveTimer: number | undefined;
   useEditorStore.subscribe(
-    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.wallFinishes, state.modelInstances] as const,
-    ([name, projectType, site, floors, rooms, wallFinishes, modelInstances]) => {
+    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.wallFinishes, state.openings, state.modelInstances] as const,
+    ([name, projectType, site, floors, rooms, wallFinishes, openings, modelInstances]) => {
       window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, wallFinishes, modelInstances })), 180);
+      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, wallFinishes, openings, modelInstances })), 180);
     },
     { equalityFn: shallow },
   );
