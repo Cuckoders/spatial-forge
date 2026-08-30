@@ -36,6 +36,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .segmented button { border: 0; background: transparent; border-radius: 8px; padding: 9px 11px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .segmented button.active { background: #e1e3dc; box-shadow: inset 0 0 0 1px #d2d5cb; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 7px; padding: 0 16px; }
+.history-actions { display: flex; align-items: center; gap: 2px; padding-right: 7px; margin-right: 1px; border-right: 1px solid var(--line); }
+.history-actions button { width: 31px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; cursor: pointer; }
+.history-actions button:hover:not(:disabled) { background: #e5e6df; }
+.history-actions button:disabled { opacity: .28; cursor: not-allowed; }
 .button, .icon-button { border: 1px solid var(--line); background: #fff; border-radius: 9px; min-height: 38px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-size: 12px; font-weight: 700; }
 .button:hover, .icon-button:hover { border-color: #acb0a6; }
 .button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }

@@ -23,6 +23,8 @@ interface EditorState {
   cameraPreset: CameraPreset;
   cameraRevision: number;
   message: string | null;
+  canUndo: boolean;
+  canRedo: boolean;
   setProjectName: (name: string) => void;
   setProjectType: (type: ProjectType) => void;
   updateSite: (patch: Partial<SiteSettings>) => void;
@@ -51,7 +53,20 @@ interface EditorState {
   loadProject: (project: ProjectDocument) => void;
   resetProject: () => void;
   notify: (message: string | null) => void;
+  undo: () => void;
+  redo: () => void;
+  beginHistoryBatch: () => void;
+  endHistoryBatch: () => void;
 }
+
+type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'wallFinishes' | 'textures' | 'modelAssets' | 'modelInstances' | 'activeFloorId' | 'showAllFloors'>;
+
+const historyPast: HistorySnapshot[] = [];
+const historyFuture: HistorySnapshot[] = [];
+let lastHistorySnapshot: HistorySnapshot;
+let historyBatchStart: HistorySnapshot | null = null;
+let restoringHistory = false;
+const HISTORY_LIMIT = 60;
 
 const colors = ['#E8DFC9', '#D8E4DD', '#E5D7D7', '#D9DCE8', '#DED6C7'];
 const cleanText = (value: string, maximum: number) => Array.from(value, (character) => {
@@ -118,6 +133,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   cameraPreset: 'perspective',
   cameraRevision: 0,
   message: null,
+  canUndo: false,
+  canRedo: false,
   setProjectName: (name) => set({ projectName: cleanText(name, 80) || 'Новый проект' }),
   setProjectType: (projectType) => set({ projectType, selection: null }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
@@ -204,7 +221,82 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
+  undo: () => undoHistory(),
+  redo: () => redoHistory(),
+  beginHistoryBatch: () => beginHistoryBatch(),
+  endHistoryBatch: () => endHistoryBatch(),
 })));
+
+function captureHistory(state: EditorState): HistorySnapshot {
+  return {
+    projectName: state.projectName, projectType: state.projectType, site: state.site, floors: state.floors,
+    rooms: state.rooms, wallFinishes: state.wallFinishes, textures: state.textures, modelAssets: state.modelAssets,
+    modelInstances: state.modelInstances, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
+  };
+}
+
+function sameHistory(left: HistorySnapshot, right: HistorySnapshot) {
+  return left.projectName === right.projectName && left.projectType === right.projectType && left.site === right.site
+    && left.floors === right.floors && left.rooms === right.rooms && left.wallFinishes === right.wallFinishes
+    && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances
+    && left.activeFloorId === right.activeFloorId && left.showAllFloors === right.showAllFloors;
+}
+
+function updateHistoryAvailability() {
+  useEditorStore.setState({ canUndo: historyPast.length > 0, canRedo: historyFuture.length > 0 });
+}
+
+function beginHistoryBatch() {
+  historyBatchStart ??= captureHistory(useEditorStore.getState());
+}
+
+function endHistoryBatch() {
+  if (!historyBatchStart) return;
+  const current = captureHistory(useEditorStore.getState());
+  if (!sameHistory(historyBatchStart, current)) {
+    historyPast.push(historyBatchStart);
+    if (historyPast.length > HISTORY_LIMIT) historyPast.shift();
+    historyFuture.length = 0;
+  }
+  historyBatchStart = null;
+  lastHistorySnapshot = current;
+  updateHistoryAvailability();
+}
+
+function undoHistory() {
+  if (historyBatchStart) endHistoryBatch();
+  const previous = historyPast.pop();
+  if (!previous) return;
+  historyFuture.push(captureHistory(useEditorStore.getState()));
+  restoringHistory = true;
+  useEditorStore.setState({ ...previous, selection: null, tool: 'select', message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
+}
+
+function redoHistory() {
+  if (historyBatchStart) endHistoryBatch();
+  const next = historyFuture.pop();
+  if (!next) return;
+  historyPast.push(captureHistory(useEditorStore.getState()));
+  restoringHistory = true;
+  useEditorStore.setState({ ...next, selection: null, tool: 'select', message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
+}
+
+lastHistorySnapshot = captureHistory(useEditorStore.getState());
+
+useEditorStore.subscribe(
+  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.wallFinishes, state.textures, state.modelAssets, state.modelInstances, state.activeFloorId, state.showAllFloors] as const,
+  () => {
+    const current = captureHistory(useEditorStore.getState());
+    if (restoringHistory) { restoringHistory = false; lastHistorySnapshot = current; return; }
+    if (historyBatchStart) { lastHistorySnapshot = current; return; }
+    historyPast.push(lastHistorySnapshot);
+    if (historyPast.length > HISTORY_LIMIT) historyPast.shift();
+    historyFuture.length = 0;
+    lastHistorySnapshot = current;
+    updateHistoryAvailability();
+  },
+  { equalityFn: shallow },
+);
 
 if (typeof window !== 'undefined') {
   let saveTimer: number | undefined;

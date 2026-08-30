@@ -6,6 +6,7 @@ import { MOUSE, TOUCH } from 'three';
 import { useEditorStore } from '../../store/editorStore';
 import { ModelMesh } from './ModelMesh';
 import { RoomMesh } from './RoomMesh';
+import { SelectionTransform } from './SelectionTransform';
 
 function CameraController() {
   const camera = useThree((state) => state.camera);
@@ -63,6 +64,7 @@ function SceneContents() {
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
       </group>;
     })}
+    <SelectionTransform />
     <CameraController />
   </>;
 }
@@ -74,6 +76,6 @@ export function PlannerCanvas() {
     <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} gl={{ antialias: true, alpha: false }} onPointerMissed={() => select(null)} shadows>
       <SceneContents />
     </Canvas>
-    <div className="canvas-hint"><kbd>ЛКМ</kbd> вращение · <kbd>ПКМ</kbd> панорама · <kbd>колесо</kbd> масштаб</div>
+    <div className="canvas-hint"><kbd>ЛКМ</kbd> вращение · <kbd>стрелки</kbd> перемещение выбранного · <kbd>колесо</kbd> масштаб</div>
   </div>;
 }

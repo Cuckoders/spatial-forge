@@ -43,12 +43,16 @@ export default function App() {
   const setTool = useEditorStore((state) => state.setTool);
   const rotateSelection = useEditorStore((state) => state.rotateSelection);
   const setCameraPreset = useEditorStore((state) => state.setCameraPreset);
+  const undo = useEditorStore((state) => state.undo);
+  const redo = useEditorStore((state) => state.redo);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
-      if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelection(); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
+      else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
+      else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelection(); }
       else if (event.key === 'Escape') select(null);
       else if (event.key.toLowerCase() === 'v') setTool('select');
       else if (event.key.toLowerCase() === 'r') setTool('rectangle');
@@ -60,7 +64,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelection, rotateSelection, select, setCameraPreset, setTool]);
+  }, [deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, undo]);
 
   useEffect(() => {
     if (!message) return;
