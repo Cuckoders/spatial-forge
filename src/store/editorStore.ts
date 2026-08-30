@@ -19,6 +19,7 @@ interface EditorState {
   modelInstances: ModelInstance[];
   activeFloorId: string;
   showAllFloors: boolean;
+  showDimensions: boolean;
   tool: EditorTool;
   selection: Selection | null;
   cameraPreset: CameraPreset;
@@ -44,6 +45,7 @@ interface EditorState {
   setActiveFloor: (id: string) => void;
   removeActiveFloor: () => void;
   toggleAllFloors: () => void;
+  toggleDimensions: () => void;
   addTexture: (asset: TextureAsset) => void;
   addModelAsset: (asset: ModelAsset) => void;
   addBuiltInModel: (kind: BuiltInModelKind) => void;
@@ -149,6 +151,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   modelInstances: initialProject.modelInstances,
   activeFloorId: initialProject.floors[0]?.id ?? 'floor-1',
   showAllFloors: false,
+  showDimensions: false,
   tool: 'select',
   selection: null,
   cameraPreset: 'perspective',
@@ -239,6 +242,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       modelInstances: state.modelInstances.filter((model) => model.floorId !== state.activeFloorId), activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
   }),
   toggleAllFloors: () => set((state) => ({ showAllFloors: !state.showAllFloors })),
+  toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
   addTexture: (asset) => set((state) => ({ textures: [...state.textures, asset], message: 'Текстура готова к применению' })),
   addModelAsset: (asset) => set((state) => ({ modelAssets: [...state.modelAssets, asset], message: 'GLB-модель добавлена в библиотеку' })),
   addBuiltInModel: (kind) => set((state) => {

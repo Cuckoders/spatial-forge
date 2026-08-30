@@ -13,7 +13,7 @@ function EmptyInspector() {
   return <>
     <div className="inspector-empty"><Move3D size={28} /><h2>Выберите элемент</h2><p>Нажмите на пол, стену или объект в сцене, чтобы открыть его параметры.</p></div>
     <section className="inspector-section"><div className="inspector-title"><span>Площадка</span><Ruler size={16} /></div><div className="field-row"><NumericField label="Ширина" max={200} min={4} onChange={(width) => updateSite({ width })} unit="м" value={site.width} /><NumericField label="Глубина" max={200} min={4} onChange={(depth) => updateSite({ depth })} unit="м" value={site.depth} /></div></section>
-    <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>⌘Z</kbd> отменить · <kbd>]</kbd> повернуть · <kbd>1–3</kbd> камера</p></div>
+    <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>⌘Z</kbd> отменить · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
   </>;
 }
 

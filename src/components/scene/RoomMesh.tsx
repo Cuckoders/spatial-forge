@@ -1,9 +1,9 @@
 import { Suspense, useEffect, useMemo } from 'react';
-import { Edges } from '@react-three/drei';
+import { Edges, Html } from '@react-three/drei';
 import { type ThreeEvent, useLoader } from '@react-three/fiber';
 import { Color, DoubleSide, RepeatWrapping, Shape, ShapeGeometry, SRGBColorSpace, TextureLoader } from 'three';
 
-import { roomVertices, wallId } from '../../lib/geometry';
+import { roomArea, roomVertices, wallId } from '../../lib/geometry';
 import { useEditorStore } from '../../store/editorStore';
 import type { PlanRoom, WallOpening } from '../../types';
 
@@ -11,6 +11,27 @@ interface RoomMeshProps {
   room: PlanRoom;
   elevation: number;
   active: boolean;
+}
+
+function RoomMeasurements({ room, vertices }: { room: PlanRoom; vertices: ReadonlyArray<readonly [number, number]> }) {
+  const signedArea = vertices.reduce((sum, point, index) => {
+    const next = vertices[(index + 1) % vertices.length];
+    return next ? sum + point[0] * next[1] - next[0] * point[1] : sum;
+  }, 0);
+  return <group position={[0, 0.24, 0]}>
+    <Html center distanceFactor={11} position={[0, 0.06, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[30, 0]}>
+      <div className="room-measure-label"><b>{room.name}</b><span>{roomArea(room).toFixed(1)} м²</span></div>
+    </Html>
+    {vertices.map((start, index) => {
+      const end = vertices[(index + 1) % vertices.length]; if (!end) return null;
+      const dx = end[0] - start[0]; const dz = end[1] - start[1]; const length = Math.hypot(dx, dz);
+      const direction = signedArea >= 0 ? 1 : -1;
+      const offsetX = direction * dz / length * 0.42; const offsetZ = direction * -dx / length * 0.42;
+      return <Html center distanceFactor={10} key={`measure-${room.id}-${index}`} position={[(start[0] + end[0]) / 2 + offsetX, 0, (start[1] + end[1]) / 2 + offsetZ]} style={{ pointerEvents: 'none' }} zIndexRange={[25, 0]}>
+        <div className="wall-measure-label">{length.toFixed(2)} м</div>
+      </Html>;
+    })}
+  </group>;
 }
 
 function TexturedWallMaterial({ url, color, length, height, opacity }: { url: string; color: string; length: number; height: number; opacity: number }) {
@@ -108,6 +129,7 @@ function TriangleFloor({ room, active, selected, onClick }: { room: PlanRoom; ac
 
 export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
   const selection = useEditorStore((state) => state.selection);
+  const showDimensions = useEditorStore((state) => state.showDimensions);
   const select = useEditorStore((state) => state.select);
   const vertices = roomVertices(room);
   const roomSelected = selection?.kind === 'room' && selection.id === room.id;
@@ -129,6 +151,7 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
         if (!end) return null;
         return <Wall key={wallId(room.id, index)} active={active} end={end} room={room} selected={selection?.kind === 'wall' && selection.roomId === room.id && selection.wallIndex === index} start={start} wallIndex={index} />;
       })}
+      {active && showDimensions ? <RoomMeasurements room={room} vertices={vertices} /> : null}
     </group>
   );
 }

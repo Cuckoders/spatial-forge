@@ -108,6 +108,10 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .axis-widget { position: absolute; right: 18px; top: 78px; width: 54px; height: 54px; display: grid; place-items: center; color: #7b817b; font-family: "DM Mono", monospace; font-size: 8px; pointer-events: none; }
 .axis-widget span { position: absolute; }
 .axis-y { top: 0; color: #408d58; }.axis-x { right: 0; color: #bc4b43; }.axis-z { left: 0; color: #4174af; }
+.room-measure-label { min-width: 88px; padding: 6px 8px; display: grid; gap: 1px; text-align: center; background: rgba(32,37,34,.9); color: white; border: 1px solid rgba(232,255,87,.55); border-radius: 7px; box-shadow: 0 5px 14px rgba(24,29,25,.2); white-space: nowrap; }
+.room-measure-label b { max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-size: 9px; }
+.room-measure-label span { color: var(--acid); font-family: "DM Mono", ui-monospace, monospace; font-size: 8px; }
+.wall-measure-label { padding: 3px 5px; background: rgba(247,245,239,.92); color: #343a35; border: 1px solid rgba(102,110,102,.4); border-radius: 5px; font-family: "DM Mono", ui-monospace, monospace; font-size: 7px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 8px rgba(44,50,44,.1); }
 
 .inspector { border-left: 1px solid var(--line); padding-bottom: 30px; }
 .panel-label { height: 46px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--line); font-size: 10px; text-transform: uppercase; font-weight: 800; letter-spacing: .08em; }

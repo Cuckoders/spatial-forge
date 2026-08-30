@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Box, Check, Compass, Grid3X3, House, RotateCw, Scan, Undo2 } from 'lucide-react';
+import { Box, Check, Compass, Grid3X3, House, RotateCw, Ruler, Scan, Undo2 } from 'lucide-react';
 
 import { FloorBar } from './components/FloorBar';
 import { Inspector } from './components/Inspector';
@@ -12,11 +12,14 @@ import { useEditorStore } from './store/editorStore';
 function ViewControls() {
   const preset = useEditorStore((state) => state.cameraPreset);
   const setCameraPreset = useEditorStore((state) => state.setCameraPreset);
+  const showDimensions = useEditorStore((state) => state.showDimensions);
+  const toggleDimensions = useEditorStore((state) => state.toggleDimensions);
   const resetProject = useEditorStore((state) => state.resetProject);
   return <div className="view-controls">
     <button className={preset === 'perspective' ? 'active' : ''} onClick={() => setCameraPreset('perspective')} title="Перспектива · 1" type="button"><Compass size={17} /></button>
     <button className={preset === 'top' ? 'active' : ''} onClick={() => setCameraPreset('top')} title="Вид сверху · 2" type="button"><Grid3X3 size={17} /></button>
     <button className={preset === 'front' ? 'active' : ''} onClick={() => setCameraPreset('front')} title="Вид спереди · 3" type="button"><Scan size={17} /></button>
+    <button className={showDimensions ? 'active' : ''} onClick={toggleDimensions} title="Размеры и площади" type="button"><Ruler size={17} /></button>
     <span />
     <button onClick={() => { if (window.confirm('Вернуть демонстрационную планировку? Текущие изменения будут заменены.')) resetProject(); }} title="Сбросить демо" type="button"><Undo2 size={17} /></button>
   </div>;
@@ -45,6 +48,7 @@ export default function App() {
   const setCameraPreset = useEditorStore((state) => state.setCameraPreset);
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
+  const toggleDimensions = useEditorStore((state) => state.toggleDimensions);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -57,6 +61,7 @@ export default function App() {
       else if (event.key.toLowerCase() === 'v') setTool('select');
       else if (event.key.toLowerCase() === 'r') setTool('rectangle');
       else if (event.key.toLowerCase() === 't') setTool('triangle');
+      else if (event.key.toLowerCase() === 'd') toggleDimensions();
       else if (event.key === ']') rotateSelection(15);
       else if (event.key === '1') setCameraPreset('perspective');
       else if (event.key === '2') setCameraPreset('top');
@@ -64,7 +69,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, undo]);
+  }, [deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, toggleDimensions, undo]);
 
   useEffect(() => {
     if (!message) return;
