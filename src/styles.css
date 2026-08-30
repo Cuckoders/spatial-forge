@@ -84,7 +84,8 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .floorbar { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 220px); display: flex; align-items: stretch; gap: 4px; padding: 4px; border-radius: 11px; background: rgba(247, 247, 242, .87); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.8); box-shadow: 0 8px 22px rgba(53,60,54,.12); }
 .floorbar-title { display: flex; align-items: center; gap: 5px; padding: 0 8px; font-size: 9px; font-weight: 800; text-transform: uppercase; color: #6c726c; border-right: 1px solid #d6d8d1; }
 .floor-tabs { display: flex; gap: 3px; overflow-x: auto; }
-.floor-tabs button { min-width: 67px; border: 0; background: transparent; border-radius: 7px; padding: 5px 8px; cursor: pointer; font-size: 9px; font-weight: 700; display: grid; }
+.floor-tabs button { min-width: 72px; max-width: 112px; border: 0; background: transparent; border-radius: 7px; padding: 5px 8px; cursor: pointer; font-size: 9px; font-weight: 700; display: grid; }
+.floor-tabs button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .floor-tabs button small { font-size: 7px; color: var(--muted); }
 .floor-tabs button.active { background: var(--ink); color: white; }
 .floor-tabs button.active small { color: var(--acid); }
@@ -161,6 +162,11 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .shortcut-card { margin: 14px 16px; background: #e8e9e2; border-radius: 9px; padding: 12px; }
 .shortcut-card b { font-size: 9px; text-transform: uppercase; }
 .shortcut-card p { margin: 7px 0 0; font-size: 8px; color: var(--muted); }
+.floor-name-field { display: grid; gap: 4px; margin-bottom: 8px; }
+.floor-name-field span { font-size: 8px; color: var(--muted); }
+.floor-name-field input { height: 36px; width: 100%; border: 1px solid var(--line); background: white; border-radius: 7px; padding: 0 9px; font-size: 10px; font-weight: 700; }
+.duplicate-floor { width: 100%; min-height: 36px; border: 1px solid #cfd2c6; background: #f4f6e8; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 9px; font-weight: 700; cursor: pointer; }
+.duplicate-floor:hover { background: var(--acid); border-color: var(--acid-dark); }
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 100; display: flex; align-items: center; gap: 8px; background: var(--ink); color: white; padding: 10px 14px; border-radius: 9px; box-shadow: 0 10px 35px rgba(0,0,0,.24); font-size: 11px; }
 .toast svg { color: var(--acid); }
 .mobile-warning { display: none; }

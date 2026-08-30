@@ -30,6 +30,15 @@ function BuiltInModel({ kind, selected }: { kind: BuiltInModelKind; selected: bo
     <mesh castShadow position={[0, 0.62, 0.78]}><boxGeometry args={[1.65, 0.18, 0.48]} /><meshStandardMaterial color="#F0ECE4" /></mesh>
     <mesh castShadow position={[0, 0.72, 1.08]}><boxGeometry args={[1.9, 1.25, 0.12]} /><meshStandardMaterial color="#816D5B" /></mesh>
   </group>;
+  if (kind === 'stairs') return <group>
+    {Array.from({ length: 11 }, (_, index) => <mesh castShadow key={index} position={[0, 0.12 + index * 0.13, -1.5 + index * 0.28]} receiveShadow>
+      <boxGeometry args={[1.15, 0.24 + index * 0.26, 0.32]} />
+      <meshStandardMaterial color={index % 2 ? '#9A7654' : '#AA8560'} roughness={0.86} />
+      {selected && index === 5 ? <Edges color="#E8FF57" /> : null}
+    </mesh>)}
+    <mesh castShadow position={[-0.62, 1.55, 0]} rotation={[Math.PI / 2.22, 0, 0]}><cylinderGeometry args={[0.035, 0.035, 3.8, 8]} /><meshStandardMaterial color="#4F5952" /></mesh>
+    <mesh castShadow position={[0.62, 1.55, 0]} rotation={[Math.PI / 2.22, 0, 0]}><cylinderGeometry args={[0.035, 0.035, 3.8, 8]} /><meshStandardMaterial color="#4F5952" /></mesh>
+  </group>;
   return <group>
     <mesh castShadow position={[0, 1.1, 0]}><cylinderGeometry args={[0.18, 0.28, 2.2, 12]} /><meshStandardMaterial color="#755638" />{selected ? <Edges color="#E8FF57" /> : null}</mesh>
     <mesh castShadow position={[0, 2.45, 0]}><dodecahedronGeometry args={[1.35, 0]} /><meshStandardMaterial color="#57765D" roughness={1} /></mesh>

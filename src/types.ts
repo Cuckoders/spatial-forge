@@ -2,7 +2,7 @@ export type ProjectType = 'apartment' | 'plot';
 export type EditorTool = 'select' | 'rectangle' | 'triangle';
 export type RoomShape = 'rectangle' | 'triangle';
 export type CameraPreset = 'perspective' | 'top' | 'front';
-export type BuiltInModelKind = 'sofa' | 'table' | 'bed' | 'tree';
+export type BuiltInModelKind = 'sofa' | 'table' | 'bed' | 'tree' | 'stairs';
 
 export interface SiteSettings {
   width: number;

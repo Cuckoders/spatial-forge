@@ -15,7 +15,7 @@ export function FloorBar() {
     <div className="floorbar">
       <div className="floorbar-title"><Layers3 size={16} /> Этажи</div>
       <div className="floor-tabs">
-        {floors.map((floor) => <button className={floor.id === activeFloorId ? 'active' : ''} key={floor.id} onClick={() => setActiveFloor(floor.id)} type="button">{floor.name}<small>{floor.elevation.toFixed(1)} м</small></button>)}
+        {floors.map((floor) => <button className={floor.id === activeFloorId ? 'active' : ''} key={floor.id} onClick={() => setActiveFloor(floor.id)} title={floor.name} type="button"><span>{floor.name}</span><small>{floor.elevation.toFixed(1)} м</small></button>)}
       </div>
       <button className="floor-action" onClick={addFloor} title="Добавить этаж" type="button"><Plus size={17} /></button>
       <button className={`floor-action ${showAllFloors ? 'active' : ''}`} onClick={toggleAllFloors} title={showAllFloors ? 'Показать только активный этаж' : 'Показать все этажи'} type="button">{showAllFloors ? <Eye size={17} /> : <EyeOff size={17} />}</button>

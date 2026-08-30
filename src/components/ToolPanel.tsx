@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from 'react';
-import { Armchair, BedDouble, Box, Cuboid, ImagePlus, MousePointer2, Square, TableProperties, Trees, Triangle, Upload } from 'lucide-react';
+import { Armchair, BedDouble, Box, Cuboid, ImagePlus, MousePointer2, MoveUpRight, Square, TableProperties, Trees, Triangle, Upload } from 'lucide-react';
 
 import { createModelAsset, createTextureAsset } from '../lib/files';
 import { useEditorStore } from '../store/editorStore';
@@ -16,6 +16,7 @@ const builtIns: Array<{ id: BuiltInModelKind; label: string; icon: typeof Box }>
   { id: 'table', label: 'Стол', icon: TableProperties },
   { id: 'bed', label: 'Кровать', icon: BedDouble },
   { id: 'tree', label: 'Дерево', icon: Trees },
+  { id: 'stairs', label: 'Лестница', icon: MoveUpRight },
 ];
 
 function fileSize(bytes: number) { return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`; }

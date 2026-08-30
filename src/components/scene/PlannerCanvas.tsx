@@ -14,14 +14,16 @@ function CameraController() {
   const revision = useEditorStore((state) => state.cameraRevision);
   const site = useEditorStore((state) => state.site);
   const tool = useEditorStore((state) => state.tool);
+  const activeFloorElevation = useEditorStore((state) => state.floors.find((floor) => floor.id === state.activeFloorId)?.elevation ?? 0);
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   useEffect(() => {
     const distance = Math.max(site.width, site.depth) * 0.72;
-    const positions = { perspective: [distance, distance * 0.72, distance] as const, top: [0, distance * 1.55, 0.01] as const, front: [0, distance * 0.5, distance * 1.35] as const };
+    const targetY = activeFloorElevation + 1;
+    const positions = { perspective: [distance, targetY + distance * 0.72, distance] as const, top: [0, targetY + distance * 1.55, 0.01] as const, front: [0, targetY + distance * 0.5, distance * 1.35] as const };
     const [x, y, z] = positions[preset];
-    camera.position.set(x, y, z); camera.lookAt(0, 1, 0); camera.updateProjectionMatrix();
-    controls.current?.target.set(0, 1, 0); controls.current?.update();
-  }, [camera, preset, revision, site.depth, site.width]);
+    camera.position.set(x, y, z); camera.lookAt(0, targetY, 0); camera.updateProjectionMatrix();
+    controls.current?.target.set(0, targetY, 0); controls.current?.update();
+  }, [activeFloorElevation, camera, preset, revision, site.depth, site.width]);
   return <OrbitControls ref={controls} enableDamping enableRotate={tool === 'select'} makeDefault maxDistance={160} maxPolarAngle={Math.PI / 2.02}
     minDistance={2} minPolarAngle={0.02} mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }}
     screenSpacePanning touches={{ ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }} />;

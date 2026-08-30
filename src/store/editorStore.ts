@@ -42,6 +42,8 @@ interface EditorState {
   updateWallOpening: (id: string, patch: Partial<WallOpening>) => void;
   removeWallOpening: (id: string) => void;
   addFloor: () => void;
+  updateFloor: (id: string, patch: Partial<Pick<PlanFloor, 'name' | 'elevation'>>) => void;
+  duplicateActiveFloor: () => void;
   setActiveFloor: (id: string) => void;
   removeActiveFloor: () => void;
   toggleAllFloors: () => void;
@@ -231,6 +233,35 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const floor: PlanFloor = { id: newId('floor'), name: `${state.floors.length + 1} этаж`, elevation: Math.max(...state.floors.map((item) => item.elevation)) + 3.2 };
     return { floors: [...state.floors, floor], activeFloorId: floor.id, selection: null, showAllFloors: false, message: 'Новый этаж создан' };
   }),
+  updateFloor: (id, patch) => set((state) => ({ floors: state.floors.map((floor) => floor.id === id ? {
+    ...floor, name: patch.name === undefined ? floor.name : cleanText(patch.name, 80) || floor.name,
+    elevation: patch.elevation === undefined ? floor.elevation : clamp(patch.elevation, -20, 60),
+  } : floor) })),
+  duplicateActiveFloor: () => set((state) => {
+    if (state.floors.length >= 12) return { message: 'Можно создать не больше 12 этажей' };
+    const sourceFloor = state.floors.find((floor) => floor.id === state.activeFloorId); if (!sourceFloor) return state;
+    const floor: PlanFloor = { id: newId('floor'), name: `${sourceFloor.name} — копия`.slice(0, 80), elevation: Math.min(60, Math.max(...state.floors.map((item) => item.elevation)) + 3.2) };
+    const sourceRooms = state.rooms.filter((room) => room.floorId === sourceFloor.id);
+    const roomIds = new Map(sourceRooms.map((room) => [room.id, newId('block')]));
+    const rooms = sourceRooms.map((room) => ({ ...room, id: roomIds.get(room.id) ?? newId('block'), floorId: floor.id }));
+    const openings = state.openings.flatMap((opening) => {
+      const roomId = roomIds.get(opening.roomId); return roomId ? [{ ...opening, id: newId('opening'), roomId }] : [];
+    });
+    const wallFinishes = { ...state.wallFinishes };
+    for (const sourceRoom of sourceRooms) {
+      const targetRoomId = roomIds.get(sourceRoom.id); if (!targetRoomId) continue;
+      const wallCount = roomVertices(sourceRoom).length;
+      for (let index = 0; index < wallCount; index += 1) {
+        const finish = state.wallFinishes[wallId(sourceRoom.id, index)];
+        if (finish) wallFinishes[wallId(targetRoomId, index)] = finish;
+      }
+    }
+    const models = state.modelInstances.filter((model) => model.floorId === sourceFloor.id)
+      .map((model) => ({ ...model, id: newId('object'), floorId: floor.id }));
+    return { floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], openings: [...state.openings, ...openings],
+      wallFinishes, modelInstances: [...state.modelInstances, ...models], activeFloorId: floor.id, selection: null,
+      showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
+  }),
   setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId) ? { activeFloorId, selection: null } : state),
   removeActiveFloor: () => set((state) => {
     if (state.floors.length === 1) return { message: 'В проекте должен остаться хотя бы один этаж' };
@@ -246,7 +277,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   addTexture: (asset) => set((state) => ({ textures: [...state.textures, asset], message: 'Текстура готова к применению' })),
   addModelAsset: (asset) => set((state) => ({ modelAssets: [...state.modelAssets, asset], message: 'GLB-модель добавлена в библиотеку' })),
   addBuiltInModel: (kind) => set((state) => {
-    const labels: Record<BuiltInModelKind, string> = { sofa: 'Диван', table: 'Стол', bed: 'Кровать', tree: 'Дерево' };
+    const labels: Record<BuiltInModelKind, string> = { sofa: 'Диван', table: 'Стол', bed: 'Кровать', tree: 'Дерево', stairs: 'Лестница' };
     const model: ModelInstance = { id: newId('object'), floorId: state.activeFloorId, assetId: `builtin:${kind}`, name: labels[kind], x: 0, y: 0, z: 0, rotation: 0, scale: 1 };
     return { modelInstances: [...state.modelInstances, model], selection: { kind: 'model', id: model.id }, tool: 'select', message: `${labels[kind]} добавлен` };
   }),

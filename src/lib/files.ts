@@ -8,7 +8,7 @@ export const MAX_MODEL_FILE_BYTES = 25 * 1024 * 1024;
 
 const idPattern = /^[A-Za-z0-9:_-]{1,80}$/;
 const colorPattern = /^#[0-9A-Fa-f]{6}$/;
-const builtInAssets = new Set<BuiltInModelKind>(['sofa', 'table', 'bed', 'tree']);
+const builtInAssets = new Set<BuiltInModelKind>(['sofa', 'table', 'bed', 'tree', 'stairs']);
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const finite = (value: unknown, minimum: number, maximum: number): value is number => typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
 const stripControls = (value: string) => Array.from(value, (character) => {
@@ -25,7 +25,7 @@ function text(value: unknown, maximum: number) {
 function readFloor(value: unknown): PlanFloor | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id)) return undefined;
   const name = text(value.name, 80);
-  if (!name || !finite(value.elevation, 0, 60)) return undefined;
+  if (!name || !finite(value.elevation, -20, 60)) return undefined;
   return { id: value.id, name, elevation: value.elevation };
 }
 

@@ -1,4 +1,4 @@
-import { Copy, DoorOpen, Droplets, Move3D, PanelTop, RotateCw, Ruler, Trash2 } from 'lucide-react';
+import { Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
@@ -9,9 +9,14 @@ function NumericField({ label, value, min, max, step = 0.1, unit, onChange }: { 
 
 function EmptyInspector() {
   const site = useEditorStore((state) => state.site);
+  const activeFloorId = useEditorStore((state) => state.activeFloorId);
+  const floor = useEditorStore((state) => state.floors.find((item) => item.id === activeFloorId));
   const updateSite = useEditorStore((state) => state.updateSite);
+  const updateFloor = useEditorStore((state) => state.updateFloor);
+  const duplicateActiveFloor = useEditorStore((state) => state.duplicateActiveFloor);
   return <>
     <div className="inspector-empty"><Move3D size={28} /><h2>Выберите элемент</h2><p>Нажмите на пол, стену или объект в сцене, чтобы открыть его параметры.</p></div>
+    {floor ? <section className="inspector-section"><div className="inspector-title"><span>Активный этаж</span><Layers3 size={16} /></div><label className="floor-name-field"><span>Название</span><input defaultValue={floor.name} key={`${floor.id}:${floor.name}`} maxLength={80} onBlur={(event) => updateFloor(floor.id, { name: event.target.value })} /></label><NumericField label="Отметка" max={60} min={-20} onChange={(elevation) => updateFloor(floor.id, { elevation })} unit="м" value={floor.elevation} /><button className="duplicate-floor" onClick={duplicateActiveFloor} type="button"><Copy size={15} /> Дублировать этаж со всем содержимым</button></section> : null}
     <section className="inspector-section"><div className="inspector-title"><span>Площадка</span><Ruler size={16} /></div><div className="field-row"><NumericField label="Ширина" max={200} min={4} onChange={(width) => updateSite({ width })} unit="м" value={site.width} /><NumericField label="Глубина" max={200} min={4} onChange={(depth) => updateSite({ depth })} unit="м" value={site.depth} /></div></section>
     <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>⌘Z</kbd> отменить · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
   </>;
