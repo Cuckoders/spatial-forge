@@ -11,12 +11,9 @@ export interface SnapGuide {
   label: string;
 }
 
-export interface WallEndpointSnap {
-  wallId: string;
-  endpoint: 'start' | 'end';
-  x: number;
-  z: number;
-}
+export type WallSnapTarget =
+  | { wallId: string; kind: 'endpoint'; endpoint: 'start' | 'end'; x: number; z: number }
+  | { wallId: string; kind: 'segment'; position: number; x: number; z: number };
 
 export interface SiteSettings {
   width: number;

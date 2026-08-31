@@ -5,7 +5,7 @@ import { shallow } from 'zustand/shallow';
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, WallEndpointSnap, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -26,8 +26,9 @@ interface EditorState {
   tool: EditorTool;
   draftPolygon: Point2[];
   draftWallStart: Point2 | null;
+  draftWallStartSnap: WallSnapTarget | null;
   draftWallEnd: Point2 | null;
-  draftWallSnap: WallEndpointSnap | null;
+  draftWallSnap: WallSnapTarget | null;
   selection: Selection | null;
   snapGuides: SnapGuide[];
   transformMode: TransformMode;
@@ -177,6 +178,50 @@ function fitStandaloneOpening(opening: StandaloneWallOpening, wall: PlanWall): S
   return { ...opening, width, height, sillHeight, offset: clamp(opening.offset, halfOffset, 1 - halfOffset) };
 }
 
+function splitWallsAtTargets(walls: PlanWall[], wallOpenings: StandaloneWallOpening[], targets: Array<WallSnapTarget | null>) {
+  const targetsByWall = new Map<string, WallSnapTarget[]>();
+  for (const target of targets) {
+    if (target?.kind !== 'segment') continue;
+    const wallTargets = targetsByWall.get(target.wallId) ?? [];
+    if (!wallTargets.some((item) => pointsMatch(item.x, item.z, target.x, target.z))) wallTargets.push(target);
+    targetsByWall.set(target.wallId, wallTargets);
+  }
+  let nextWalls = walls;
+  let nextOpenings = wallOpenings;
+  let splitCount = 0;
+
+  for (const [wallId, wallTargets] of targetsByWall) {
+    const sortedTargets = wallTargets.filter((target) => target.kind === 'segment').sort((left, right) => right.position - left.position);
+    for (const target of sortedTargets) {
+      const wallIndex = nextWalls.findIndex((wall) => wall.id === wallId);
+      const source = nextWalls[wallIndex];
+      if (!source) continue;
+      const firstLength = Math.hypot(target.x - source.startX, target.z - source.startZ);
+      const secondLength = Math.hypot(source.endX - target.x, source.endZ - target.z);
+      if (firstLength < 0.25 || secondLength < 0.25) continue;
+      const first = normalizedWall({ ...source, endX: target.x, endZ: target.z });
+      const second = normalizedWall({ ...source, id: newId('wall'), name: `${source.name} · часть`.slice(0, 80), startX: target.x, startZ: target.z });
+      nextWalls = [...nextWalls.slice(0, wallIndex), first, second, ...nextWalls.slice(wallIndex + 1)];
+
+      const openingIndex = nextOpenings.findIndex((opening) => opening.wallId === source.id);
+      const opening = nextOpenings[openingIndex];
+      if (opening) {
+        const sourceLength = firstLength + secondLength;
+        const openingCenter = opening.offset * sourceLength;
+        const destination = openingCenter < firstLength ? first : second;
+        const destinationLength = openingCenter < firstLength ? firstLength : secondLength;
+        const localCenter = openingCenter < firstLength ? openingCenter : openingCenter - firstLength;
+        const fitted = fitStandaloneOpening({ ...opening, wallId: destination.id, offset: localCenter / destinationLength }, destination);
+        nextOpenings = fitted
+          ? nextOpenings.map((item, index) => index === openingIndex ? fitted : item)
+          : nextOpenings.filter((_, index) => index !== openingIndex);
+      }
+      splitCount += 1;
+    }
+  }
+  return { walls: nextWalls, wallOpenings: nextOpenings, splitCount };
+}
+
 function normalizedModel(model: ModelInstance): ModelInstance {
   return { ...model, name: cleanText(model.name, 80) || 'Объект', x: clamp(model.x, -200, 200), y: clamp(model.y, -10, 50),
     z: clamp(model.z, -200, 200), rotation: radians(normalizeDegrees(model.rotation * 180 / Math.PI)), scale: clamp(model.scale, 0.05, 20) };
@@ -222,6 +267,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   tool: 'select',
   draftPolygon: [],
   draftWallStart: null,
+  draftWallStartSnap: null,
   draftWallEnd: null,
   draftWallSnap: null,
   selection: null,
@@ -236,15 +282,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setProjectName: (name) => set({ projectName: cleanText(name, 80) || 'Новый проект' }),
   setProjectType: (projectType) => set({ projectType, selection: null, snapGuides: [] }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
-  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] }),
+  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] }),
   select: (selection, additive = false) => set((state) => {
-    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] };
+    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] };
     const currentItems = state.selection?.kind === 'group' ? state.selection.items
       : state.selection && isObjectSelection(state.selection) ? [state.selection] : [];
     const key = objectSelectionKey(selection);
     const exists = currentItems.some((item) => objectSelectionKey(item) === key);
     const items = exists ? currentItems.filter((item) => objectSelectionKey(item) !== key) : [...currentItems, selection];
-    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] };
+    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] };
   }),
   selectObjects: (selections, additive = false) => set((state) => {
     const currentItems = additive
@@ -252,10 +298,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       : [];
     const items = new Map(currentItems.map((item) => [objectSelectionKey(item), item]));
     for (const selection of selections) items.set(objectSelectionKey(selection), selection);
-    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] };
+    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] };
   }),
   setSnapGuides: (snapGuides) => set({ snapGuides }),
-  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] }),
+  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
@@ -275,15 +321,16 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   },
   previewWall: (x, z) => set((state) => {
     if (state.tool !== 'wall' || !state.draftWallStart) return state;
-    const snapped = snapWallPoint(x, z, state.walls, state.activeFloorId);
+    const snapped = snapWallPoint(x, z, state.walls, state.wallOpenings, state.activeFloorId);
     return { draftWallEnd: snapped.point, draftWallSnap: snapped.target };
   }),
   addWallPoint: (x, z) => set((state) => {
     if (state.tool !== 'wall') return state;
-    const snapped = snapWallPoint(x, z, state.walls, state.activeFloorId);
+    const snapped = snapWallPoint(x, z, state.walls, state.wallOpenings, state.activeFloorId);
     const point = snapped.point;
-    if (!state.draftWallStart) return { draftWallStart: point, draftWallEnd: point, draftWallSnap: snapped.target,
-      message: snapped.target ? 'Начало соединено со стеной · укажите конечную точку' : 'Укажите конечную точку стены' };
+    if (!state.draftWallStart) return { draftWallStart: point, draftWallStartSnap: snapped.target, draftWallEnd: point, draftWallSnap: snapped.target,
+      message: snapped.target?.kind === 'segment' ? 'Начало привязано к середине стены · укажите конечную точку'
+        : snapped.target ? 'Начало соединено со стеной · укажите конечную точку' : 'Укажите конечную точку стены' };
     const length = Math.hypot(point[0] - state.draftWallStart[0], point[1] - state.draftWallStart[1]);
     if (length < 0.25) return { draftWallEnd: point, draftWallSnap: snapped.target, message: 'Длина стены должна быть не меньше 0,25 м' };
     const id = newId('wall');
@@ -291,9 +338,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const wall = normalizedWall({ id, floorId: state.activeFloorId, name: `Стена ${count}`,
       startX: state.draftWallStart[0], startZ: state.draftWallStart[1], endX: point[0], endZ: point[1],
       height: state.projectType === 'plot' ? 1.8 : 2.8, thickness: 0.16, color: '#E9E4DA' });
-    return { walls: [...state.walls, wall], selection: { kind: 'partition', id }, tool: 'select',
-      draftWallStart: null, draftWallEnd: null, draftWallSnap: null,
-      message: `Стена создана · ${length.toFixed(2)} м${snapped.target ? ' · конец соединён' : ''}` };
+    const targets = [state.draftWallStartSnap, snapped.target];
+    const split = splitWallsAtTargets(state.walls, state.wallOpenings, targets);
+    const hasEndpointConnection = targets.some((target) => target?.kind === 'endpoint');
+    return { walls: [...split.walls, wall], wallOpenings: split.wallOpenings, selection: { kind: 'partition', id }, tool: 'select',
+      draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null,
+      message: `Стена создана · ${length.toFixed(2)} м${split.splitCount ? ` · Т-соединений: ${split.splitCount}` : hasEndpointConnection ? ' · соединение' : ''}` };
   }),
   completePolygon: () => set((state) => {
     if (state.tool !== 'polygon') return state;
@@ -311,7 +361,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       wallThickness: 0.16, floorColor: colors[state.rooms.length % colors.length] ?? '#D8CFBB' };
     return { rooms: [...state.rooms, room], selection: { kind: 'room', id }, tool: 'select', draftPolygon: [], message: 'Произвольный контур создан' };
   }),
-  cancelPolygon: () => set((state) => ({ draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, tool: 'select',
+  cancelPolygon: () => set((state) => ({ draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, tool: 'select',
     ...(state.draftPolygon.length || state.draftWallStart ? { message: 'Построение отменено' } : {}) })),
   updatePolygonVertex: (id, index, patch) => set((state) => {
     const room = state.rooms.find((item) => item.id === id);
@@ -547,7 +597,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
   setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId)
-    ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] } : state),
+    ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [] } : state),
   removeActiveFloor: () => set((state) => {
     if (state.floors.length === 1) return { message: 'В проекте должен остаться хотя бы один этаж' };
     const remaining = state.floors.filter((floor) => floor.id !== state.activeFloorId);
@@ -706,12 +756,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
     floors: project.floors, rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Планировка загружена' }),
+    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
       rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Демо-проект восстановлен' });
+      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
   undo: () => undoHistory(),
@@ -762,7 +812,7 @@ function undoHistory() {
   if (!previous) return;
   historyFuture.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
+  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
 }
 
 function redoHistory() {
@@ -771,7 +821,7 @@ function redoHistory() {
   if (!next) return;
   historyPast.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
+  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
 }
 
 lastHistorySnapshot = captureHistory(useEditorStore.getState());

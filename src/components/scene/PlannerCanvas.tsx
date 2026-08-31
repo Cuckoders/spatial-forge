@@ -97,7 +97,7 @@ function DraftWall() {
       <mesh rotation={[Math.PI / 2, 0, 0]} raycast={() => undefined}>
         <torusGeometry args={[0.27, 0.035, 10, 32]} /><meshBasicMaterial color="#D7EF35" depthTest={false} />
       </mesh>
-      <Html center position={[0, 0.48, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[45, 0]}><div className="wall-snap-label">Соединение</div></Html>
+      <Html center position={[0, 0.48, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[45, 0]}><div className="wall-snap-label">{snap.kind === 'segment' ? 'Т-соединение' : 'Соединение'}</div></Html>
     </group> : null}
   </group>;
 }

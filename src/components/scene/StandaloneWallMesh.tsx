@@ -39,12 +39,13 @@ export function StandaloneWallMesh({ wall, elevation, active }: { wall: PlanWall
   const selection = useEditorStore((state) => state.selection);
   const opening = useEditorStore((state) => state.wallOpenings.find((item) => item.wallId === wall.id));
   const showDimensions = useEditorStore((state) => state.showDimensions);
+  const wallToolActive = useEditorStore((state) => state.tool === 'wall');
   const select = useEditorStore((state) => state.select);
   const dx = wall.endX - wall.startX; const dz = wall.endZ - wall.startZ;
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
   const selected = selection?.kind === 'partition' && selection.id === wall.id;
   const choose = (event: ThreeEvent<MouseEvent>) => {
-    if (!active || event.delta > 4) return;
+    if (!active || wallToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'partition', id: wall.id });
   };
   const center = opening ? Math.min(length / 2 - opening.width / 2, Math.max(-length / 2 + opening.width / 2, -length / 2 + opening.offset * length)) : 0;

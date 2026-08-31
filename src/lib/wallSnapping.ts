@@ -1,16 +1,19 @@
 import { snapToGrid, type Point2 } from './geometry';
-import type { PlanWall, WallEndpointSnap } from '../types';
+import type { PlanWall, StandaloneWallOpening, WallSnapTarget } from '../types';
 
-const WALL_SNAP_DISTANCE = 0.65;
+const ENDPOINT_SNAP_DISTANCE = 0.65;
+const SEGMENT_SNAP_DISTANCE = 0.45;
+const MINIMUM_WALL_LENGTH = 0.25;
+const OPENING_CLEARANCE = 0.12;
 
 export interface WallPointSnap {
   point: Point2;
-  target: WallEndpointSnap | null;
+  target: WallSnapTarget | null;
 }
 
-export function snapWallPoint(x: number, z: number, walls: PlanWall[], floorId: string): WallPointSnap {
-  let target: WallEndpointSnap | null = null;
-  let nearestDistance = WALL_SNAP_DISTANCE;
+export function snapWallPoint(x: number, z: number, walls: PlanWall[], wallOpenings: StandaloneWallOpening[], floorId: string): WallPointSnap {
+  let target: WallSnapTarget | null = null;
+  let nearestDistance = ENDPOINT_SNAP_DISTANCE;
 
   for (const wall of walls) {
     if (wall.floorId !== floorId) continue;
@@ -22,8 +25,38 @@ export function snapWallPoint(x: number, z: number, walls: PlanWall[], floorId: 
       const distance = Math.hypot(endpoint.x - x, endpoint.z - z);
       if (distance > nearestDistance) continue;
       nearestDistance = distance;
-      target = { wallId: wall.id, ...endpoint };
+      target = { wallId: wall.id, kind: 'endpoint', ...endpoint };
     }
+  }
+
+  if (target) return { point: [target.x, target.z], target };
+
+  const openingsByWall = new Map(wallOpenings.map((opening) => [opening.wallId, opening]));
+  nearestDistance = SEGMENT_SNAP_DISTANCE;
+  for (const wall of walls) {
+    if (wall.floorId !== floorId) continue;
+    const dx = wall.endX - wall.startX;
+    const dz = wall.endZ - wall.startZ;
+    const lengthSquared = dx * dx + dz * dz;
+    const length = Math.sqrt(lengthSquared);
+    if (length < MINIMUM_WALL_LENGTH * 2) continue;
+    const projectedPosition = ((x - wall.startX) * dx + (z - wall.startZ) * dz) / lengthSquared;
+    const position = snapToGrid(projectedPosition * length) / length;
+    const minimumPosition = MINIMUM_WALL_LENGTH / length;
+    if (position <= minimumPosition || position >= 1 - minimumPosition) continue;
+    const targetX = wall.startX + dx * position;
+    const targetZ = wall.startZ + dz * position;
+    const distance = Math.hypot(targetX - x, targetZ - z);
+    if (distance > nearestDistance) continue;
+    const opening = openingsByWall.get(wall.id);
+    if (opening) {
+      const splitDistance = position * length;
+      const openingCenter = opening.offset * length;
+      if (splitDistance >= openingCenter - opening.width / 2 - OPENING_CLEARANCE
+        && splitDistance <= openingCenter + opening.width / 2 + OPENING_CLEARANCE) continue;
+    }
+    nearestDistance = distance;
+    target = { wallId: wall.id, kind: 'segment', position, x: targetX, z: targetZ };
   }
 
   return target
