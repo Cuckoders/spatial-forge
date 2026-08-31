@@ -1,4 +1,5 @@
 import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geometry';
+import { MAX_OPENINGS_PER_WALL, openingsOverlap, type OpeningLike } from './openings';
 import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
@@ -104,6 +105,16 @@ function readStandaloneOpening(value: unknown, wallsById: Map<string, PlanWall>)
     width: value.width, height: value.height, sillHeight: value.sillHeight };
 }
 
+function invalidOpeningGroup<T extends OpeningLike>(openings: T[], wallLength: number) {
+  if (openings.length > MAX_OPENINGS_PER_WALL) return true;
+  const accepted: T[] = [];
+  for (const opening of [...openings].sort((left, right) => left.offset - right.offset)) {
+    if (openingsOverlap(opening, accepted, wallLength, false)) return true;
+    accepted.push(opening);
+  }
+  return false;
+}
+
 export function parseProjectDocument(value: unknown): ProjectDocument {
   if (!isRecord(value) || value.version !== 1 || !['apartment', 'plot'].includes(String(value.projectType)) || !isRecord(value.site)
     || !finite(value.site.width, 4, 200) || !finite(value.site.depth, 4, 200) || !Array.isArray(value.floors)
@@ -132,14 +143,34 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   const wallOpenings = (Array.isArray(value.wallOpenings) ? value.wallOpenings : []).map((opening) => readStandaloneOpening(opening, wallsById));
   if (wallOpenings.some((opening) => !opening)) throw new Error('В файле есть некорректный проём самостоятельной стены.');
   const validWallOpenings = wallOpenings as StandaloneWallOpening[];
-  if (new Set(validWallOpenings.map((opening) => opening.id)).size !== validWallOpenings.length
-    || new Set(validWallOpenings.map((opening) => opening.wallId)).size !== validWallOpenings.length) throw new Error('Проёмы самостоятельных стен повторяются.');
+  if (new Set(validWallOpenings.map((opening) => opening.id)).size !== validWallOpenings.length) throw new Error('Идентификаторы проёмов самостоятельных стен повторяются.');
+  const wallOpeningGroups = new Map<string, StandaloneWallOpening[]>();
+  for (const opening of validWallOpenings) wallOpeningGroups.set(opening.wallId, [...(wallOpeningGroups.get(opening.wallId) ?? []), opening]);
+  for (const wall of validWalls) {
+    if (invalidOpeningGroup(wallOpeningGroups.get(wall.id) ?? [], Math.hypot(wall.endX - wall.startX, wall.endZ - wall.startZ))) {
+      throw new Error('Проёмы самостоятельной стены пересекаются или превышают допустимое количество.');
+    }
+  }
   const roomsById = new Map(validRooms.map((room) => [room.id, room]));
   const openings = (Array.isArray(value.openings) ? value.openings : []).map((opening) => readOpening(opening, roomsById));
   if (openings.some((opening) => !opening)) throw new Error('В файле есть некорректный дверной или оконный проём.');
   const validOpenings = openings as WallOpening[];
-  if (new Set(validOpenings.map((opening) => opening.id)).size !== validOpenings.length
-    || new Set(validOpenings.map((opening) => wallIdForOpening(opening))).size !== validOpenings.length) throw new Error('Проёмы в файле повторяются.');
+  if (new Set(validOpenings.map((opening) => opening.id)).size !== validOpenings.length) throw new Error('Идентификаторы проёмов повторяются.');
+  const openingGroups = new Map<string, WallOpening[]>();
+  for (const opening of validOpenings) {
+    const key = wallIdForOpening(opening); openingGroups.set(key, [...(openingGroups.get(key) ?? []), opening]);
+  }
+  for (const room of validRooms) {
+    const vertices = roomVertices(room);
+    for (let wallIndex = 0; wallIndex < vertices.length; wallIndex += 1) {
+      const start = vertices[wallIndex]; const end = vertices[(wallIndex + 1) % vertices.length];
+      if (!start || !end) continue;
+      const group = openingGroups.get(wallIdForOpening({ roomId: room.id, wallIndex })) ?? [];
+      if (invalidOpeningGroup(group, Math.hypot(end[0] - start[0], end[1] - start[1]))) {
+        throw new Error('Проёмы стены пересекаются или превышают допустимое количество.');
+      }
+    }
+  }
   const wallFinishes: Record<string, WallFinish> = {};
   for (const [key, finish] of Object.entries(value.wallFinishes)) {
     if (!idPattern.test(key) || !isRecord(finish) || typeof finish.color !== 'string' || !colorPattern.test(finish.color)

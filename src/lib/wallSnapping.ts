@@ -31,7 +31,11 @@ export function snapWallPoint(x: number, z: number, walls: PlanWall[], wallOpeni
 
   if (target) return { point: [target.x, target.z], target };
 
-  const openingsByWall = new Map(wallOpenings.map((opening) => [opening.wallId, opening]));
+  const openingsByWall = new Map<string, StandaloneWallOpening[]>();
+  for (const opening of wallOpenings) {
+    const entries = openingsByWall.get(opening.wallId) ?? [];
+    entries.push(opening); openingsByWall.set(opening.wallId, entries);
+  }
   nearestDistance = SEGMENT_SNAP_DISTANCE;
   for (const wall of walls) {
     if (wall.floorId !== floorId) continue;
@@ -48,12 +52,14 @@ export function snapWallPoint(x: number, z: number, walls: PlanWall[], wallOpeni
     const targetZ = wall.startZ + dz * position;
     const distance = Math.hypot(targetX - x, targetZ - z);
     if (distance > nearestDistance) continue;
-    const opening = openingsByWall.get(wall.id);
-    if (opening) {
+    const openings = openingsByWall.get(wall.id) ?? [];
+    if (openings.length) {
       const splitDistance = position * length;
-      const openingCenter = opening.offset * length;
-      if (splitDistance >= openingCenter - opening.width / 2 - OPENING_CLEARANCE
-        && splitDistance <= openingCenter + opening.width / 2 + OPENING_CLEARANCE) continue;
+      if (openings.some((opening) => {
+        const openingCenter = opening.offset * length;
+        return splitDistance >= openingCenter - opening.width / 2 - OPENING_CLEARANCE
+          && splitDistance <= openingCenter + opening.width / 2 + OPENING_CLEARANCE;
+      })) continue;
     }
     nearestDistance = distance;
     target = { wallId: wall.id, kind: 'segment', position, x: targetX, z: targetZ };

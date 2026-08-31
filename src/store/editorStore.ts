@@ -4,6 +4,7 @@ import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
+import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
 import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
@@ -176,8 +177,25 @@ function fitStandaloneOpening(opening: StandaloneWallOpening, wall: PlanWall): S
   const width = clamp(opening.width, 0.25, Math.min(5, length - 0.12));
   const sillHeight = opening.kind === 'door' ? 0 : clamp(opening.sillHeight, 0, Math.max(0, wall.height - 0.34));
   const height = clamp(opening.height, 0.3, Math.min(4, wall.height - sillHeight - 0.04));
-  const halfOffset = width / length / 2;
+  const halfOffset = (width / 2 + OPENING_EDGE_CLEARANCE) / length;
   return { ...opening, width, height, sillHeight, offset: clamp(opening.offset, halfOffset, 1 - halfOffset) };
+}
+
+function fitOpeningGroup<T extends OpeningLike>(openings: T[], wallLength: number, fit: (opening: T) => T | undefined) {
+  const accepted: T[] = [];
+  for (const opening of [...openings].sort((left, right) => left.offset - right.offset)) {
+    const fitted = fit(opening);
+    if (!fitted) continue;
+    if (!openingsOverlap(fitted, accepted, wallLength)) { accepted.push(fitted); continue; }
+    const offset = findAvailableOpeningOffset(wallLength, fitted.width, accepted, fitted.offset);
+    if (offset !== undefined) accepted.push({ ...fitted, offset });
+  }
+  return accepted;
+}
+
+function fitStandaloneOpeningGroup(openings: StandaloneWallOpening[], wall: PlanWall) {
+  const length = Math.hypot(wall.endX - wall.startX, wall.endZ - wall.startZ);
+  return fitOpeningGroup(openings, length, (opening) => fitStandaloneOpening(opening, wall));
 }
 
 function splitWallsAtTargets(walls: PlanWall[], wallOpenings: StandaloneWallOpening[], targets: Array<WallSnapTarget | null>) {
@@ -205,18 +223,18 @@ function splitWallsAtTargets(walls: PlanWall[], wallOpenings: StandaloneWallOpen
       const second = normalizedWall({ ...source, id: newId('wall'), name: `${source.name} · часть`.slice(0, 80), startX: target.x, startZ: target.z });
       nextWalls = [...nextWalls.slice(0, wallIndex), first, second, ...nextWalls.slice(wallIndex + 1)];
 
-      const openingIndex = nextOpenings.findIndex((opening) => opening.wallId === source.id);
-      const opening = nextOpenings[openingIndex];
-      if (opening) {
+      const sourceOpenings = nextOpenings.filter((opening) => opening.wallId === source.id);
+      if (sourceOpenings.length) {
         const sourceLength = firstLength + secondLength;
-        const openingCenter = opening.offset * sourceLength;
-        const destination = openingCenter < firstLength ? first : second;
-        const destinationLength = openingCenter < firstLength ? firstLength : secondLength;
-        const localCenter = openingCenter < firstLength ? openingCenter : openingCenter - firstLength;
-        const fitted = fitStandaloneOpening({ ...opening, wallId: destination.id, offset: localCenter / destinationLength }, destination);
-        nextOpenings = fitted
-          ? nextOpenings.map((item, index) => index === openingIndex ? fitted : item)
-          : nextOpenings.filter((_, index) => index !== openingIndex);
+        const firstOpenings: StandaloneWallOpening[] = [];
+        const secondOpenings: StandaloneWallOpening[] = [];
+        for (const opening of sourceOpenings) {
+          const openingCenter = opening.offset * sourceLength;
+          if (openingCenter < firstLength) firstOpenings.push({ ...opening, wallId: first.id, offset: openingCenter / firstLength });
+          else secondOpenings.push({ ...opening, wallId: second.id, offset: (openingCenter - firstLength) / secondLength });
+        }
+        nextOpenings = [...nextOpenings.filter((opening) => opening.wallId !== source.id),
+          ...fitStandaloneOpeningGroup(firstOpenings, first), ...fitStandaloneOpeningGroup(secondOpenings, second)];
       }
       splitCount += 1;
     }
@@ -237,8 +255,21 @@ function fitOpeningToRoom(opening: WallOpening, room: PlanRoom): WallOpening | u
   const width = clamp(opening.width, 0.25, Math.min(5, wallLength - 0.12));
   const sillHeight = opening.kind === 'door' ? 0 : clamp(opening.sillHeight, 0, Math.max(0, room.wallHeight - 0.34));
   const height = clamp(opening.height, 0.3, Math.min(4, room.wallHeight - sillHeight - 0.04));
-  const halfOffset = width / wallLength / 2;
+  const halfOffset = (width / 2 + OPENING_EDGE_CLEARANCE) / wallLength;
   return { ...opening, width, height, sillHeight, offset: clamp(opening.offset, halfOffset, 1 - halfOffset) };
+}
+
+function fitRoomOpeningGroups(openings: WallOpening[], room: PlanRoom) {
+  const vertices = roomVertices(room);
+  const result: WallOpening[] = [];
+  for (let wallIndex = 0; wallIndex < vertices.length; wallIndex += 1) {
+    const start = vertices[wallIndex]; const end = vertices[(wallIndex + 1) % vertices.length];
+    if (!start || !end) continue;
+    const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    result.push(...fitOpeningGroup(openings.filter((opening) => opening.wallIndex === wallIndex), length,
+      (opening) => fitOpeningToRoom(opening, room)));
+  }
+  return result;
 }
 
 function remapRoomFinishes(finishes: Record<string, WallFinish>, roomId: string, sourceWallIndices: number[]) {
@@ -402,10 +433,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const bounds = polygonBounds(vertices);
     if (bounds.width < 0.5 || bounds.depth < 0.5 || bounds.width > 50 || bounds.depth > 50) return { message: 'Габариты контура должны быть от 0,5 до 50 м' };
     const updatedRoom = { ...room, vertices, width: bounds.width, depth: bounds.depth };
-    const openings = state.openings.flatMap((opening) => {
-      if (opening.roomId !== id) return [opening];
-      const fitted = fitOpeningToRoom(opening, updatedRoom); return fitted ? [fitted] : [];
-    });
+    const openings = [...state.openings.filter((opening) => opening.roomId !== id),
+      ...fitRoomOpeningGroups(state.openings.filter((opening) => opening.roomId === id), updatedRoom)];
     return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), openings };
   }),
   insertPolygonVertex: (id, afterIndex) => set((state) => {
@@ -418,7 +447,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const vertices = [...source.slice(0, afterIndex + 1), midpoint, ...source.slice(afterIndex + 1)];
     const updatedRoom = { ...room, vertices };
     const sourceWallIndices = vertices.map((_, targetIndex) => targetIndex <= afterIndex ? targetIndex : targetIndex === afterIndex + 1 ? afterIndex : targetIndex - 1);
-    const openings = state.openings.flatMap((opening) => {
+    const remappedOpenings = state.openings.flatMap((opening) => {
       if (opening.roomId !== id) return [opening];
       const remapped = opening.wallIndex < afterIndex ? opening
         : opening.wallIndex > afterIndex ? { ...opening, wallIndex: opening.wallIndex + 1 }
@@ -426,6 +455,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
             : { ...opening, wallIndex: opening.wallIndex + 1, offset: (opening.offset - 0.5) * 2 };
       const fitted = fitOpeningToRoom(remapped, updatedRoom); return fitted ? [fitted] : [];
     });
+    const openings = [...remappedOpenings.filter((opening) => opening.roomId !== id),
+      ...fitRoomOpeningGroups(remappedOpenings.filter((opening) => opening.roomId === id), updatedRoom)];
     const selection = state.selection?.kind === 'vertex' && state.selection.roomId === id && state.selection.vertexIndex > afterIndex
       ? { ...state.selection, vertexIndex: state.selection.vertexIndex + 1 } as Selection : state.selection;
     return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), selection,
@@ -468,10 +499,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     });
     if (!updatedRoom) return state;
     const nextRoom = updatedRoom;
-    const openings = state.openings.flatMap((opening) => {
-      if (opening.roomId !== id) return [opening];
-      const fitted = fitOpeningToRoom(opening, nextRoom); return fitted ? [fitted] : [];
-    });
+    const openings = [...state.openings.filter((opening) => opening.roomId !== id),
+      ...fitRoomOpeningGroups(state.openings.filter((opening) => opening.roomId === id), nextRoom)];
     return { rooms, openings };
   }),
   duplicateRoom: (id) => set((state) => {
@@ -516,21 +545,20 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       return { message: 'Изменение сделает соединённую стену короче 0,25 м' };
     }
     const wallsById = new Map(walls.map((item) => [item.id, item]));
-    const wallOpenings = state.wallOpenings.flatMap((opening) => {
-      if (!affectedWallIds.has(opening.wallId)) return [opening];
-      const affectedWall = wallsById.get(opening.wallId);
-      if (!affectedWall) return [];
-      const fitted = fitStandaloneOpening(opening, affectedWall); return fitted ? [fitted] : [];
-    });
+    const wallOpenings = state.wallOpenings.filter((opening) => !affectedWallIds.has(opening.wallId));
+    for (const wallId of affectedWallIds) {
+      const affectedWall = wallsById.get(wallId); if (!affectedWall) continue;
+      wallOpenings.push(...fitStandaloneOpeningGroup(state.wallOpenings.filter((opening) => opening.wallId === wallId), affectedWall));
+    }
     return { walls, wallOpenings };
   }),
   duplicateWall: (id) => set((state) => {
     const source = state.walls.find((wall) => wall.id === id); if (!source) return state;
     const copy = normalizedWall({ ...source, id: newId('wall'), name: `${source.name} — копия`.slice(0, 80),
       startX: source.startX + 0.5, startZ: source.startZ + 0.5, endX: source.endX + 0.5, endZ: source.endZ + 0.5 });
-    const sourceOpening = state.wallOpenings.find((opening) => opening.wallId === source.id);
-    const opening = sourceOpening ? { ...sourceOpening, id: newId('wall-opening'), wallId: copy.id } : undefined;
-    return { walls: [...state.walls, copy], wallOpenings: opening ? [...state.wallOpenings, opening] : state.wallOpenings,
+    const openings = state.wallOpenings.filter((opening) => opening.wallId === source.id)
+      .map((opening) => ({ ...opening, id: newId('wall-opening'), wallId: copy.id }));
+    return { walls: [...state.walls, copy], wallOpenings: [...state.wallOpenings, ...openings],
       selection: { kind: 'partition', id: copy.id }, message: 'Стена скопирована' };
   }),
   removeWall: (id) => set((state) => ({ walls: state.walls.filter((wall) => wall.id !== id),
@@ -538,21 +566,29 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     selection: state.selection?.kind === 'partition' && state.selection.id === id ? null : state.selection, message: 'Стена удалена' })),
   addStandaloneWallOpening: (wallId, kind) => set((state) => {
     const wall = state.walls.find((item) => item.id === wallId); if (!wall) return state;
+    const existing = state.wallOpenings.filter((opening) => opening.wallId === wallId);
+    if (existing.length >= MAX_OPENINGS_PER_WALL) return { message: `На одной стене можно разместить до ${MAX_OPENINGS_PER_WALL} проёмов` };
     const length = Math.hypot(wall.endX - wall.startX, wall.endZ - wall.startZ);
-    const width = Math.max(0.25, Math.min(kind === 'door' ? 0.9 : 1.6, length - 0.12));
+    let width = Math.max(0.25, Math.min(kind === 'door' ? 0.9 : 1.6, length - 0.12));
     const sillHeight = kind === 'door' ? 0 : Math.min(0.9, Math.max(0.1, wall.height - 0.7));
     const height = Math.max(0.3, Math.min(kind === 'door' ? 2.1 : 1.2, wall.height - sillHeight - 0.05));
-    const existing = state.wallOpenings.find((opening) => opening.wallId === wallId);
-    const opening = fitStandaloneOpening({ id: existing?.id ?? newId('wall-opening'), wallId, kind, offset: 0.5, width, height, sillHeight }, wall);
+    let offset = findAvailableOpeningOffset(length, width, existing);
+    if (offset === undefined && width > 0.25) { width = 0.25; offset = findAvailableOpeningOffset(length, width, existing); }
+    if (offset === undefined) return { message: 'На стене не осталось места для нового проёма' };
+    const opening = fitStandaloneOpening({ id: newId('wall-opening'), wallId, kind, offset, width, height, sillHeight }, wall);
     if (!opening) return { message: 'Эта стена слишком мала для проёма' };
-    return { wallOpenings: existing ? state.wallOpenings.map((item) => item.id === existing.id ? opening : item) : [...state.wallOpenings, opening],
+    return { wallOpenings: [...state.wallOpenings, opening],
       message: kind === 'door' ? 'Дверной проём добавлен в стену' : 'Оконный проём добавлен в стену' };
   }),
-  updateStandaloneWallOpening: (id, patch) => set((state) => ({ wallOpenings: state.wallOpenings.map((opening) => {
-    if (opening.id !== id) return opening;
-    const wall = state.walls.find((item) => item.id === opening.wallId); if (!wall) return opening;
-    return fitStandaloneOpening({ ...opening, ...patch, id: opening.id, wallId: opening.wallId }, wall) ?? opening;
-  }) })),
+  updateStandaloneWallOpening: (id, patch) => set((state) => {
+    const opening = state.wallOpenings.find((item) => item.id === id); if (!opening) return state;
+    const wall = state.walls.find((item) => item.id === opening.wallId); if (!wall) return state;
+    const fitted = fitStandaloneOpening({ ...opening, ...patch, id: opening.id, wallId: opening.wallId }, wall);
+    const length = Math.hypot(wall.endX - wall.startX, wall.endZ - wall.startZ);
+    const others = state.wallOpenings.filter((item) => item.wallId === opening.wallId && item.id !== id);
+    if (!fitted || openingsOverlap(fitted, others, length)) return { message: 'Проёмы не должны пересекаться; оставьте между ними 0,12 м' };
+    return { wallOpenings: state.wallOpenings.map((item) => item.id === id ? fitted : item) };
+  }),
   removeStandaloneWallOpening: (id) => set((state) => ({ wallOpenings: state.wallOpenings.filter((opening) => opening.id !== id), message: 'Проём удалён' })),
   setWallFinish: (roomId, wallIndex, finish) => set((state) => {
     const color = /^#[0-9a-f]{6}$/i.test(finish.color) ? finish.color : '#E7E1D7';
@@ -567,20 +603,30 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const vertices = roomVertices(room); const start = vertices[wallIndex]; const end = vertices[(wallIndex + 1) % vertices.length];
     if (!start || !end) return state;
     const wallLength = Math.hypot(end[0] - start[0], end[1] - start[1]);
-    const width = Math.max(0.25, Math.min(kind === 'door' ? 0.9 : 1.6, wallLength - 0.12));
+    const existing = state.openings.filter((opening) => opening.roomId === roomId && opening.wallIndex === wallIndex);
+    if (existing.length >= MAX_OPENINGS_PER_WALL) return { message: `На одной стене можно разместить до ${MAX_OPENINGS_PER_WALL} проёмов` };
+    let width = Math.max(0.25, Math.min(kind === 'door' ? 0.9 : 1.6, wallLength - 0.12));
     const sillHeight = kind === 'door' ? 0 : Math.min(0.9, Math.max(0.1, room.wallHeight - 0.7));
     const height = Math.max(0.3, Math.min(kind === 'door' ? 2.1 : 1.2, room.wallHeight - sillHeight - 0.05));
-    const existing = state.openings.find((opening) => opening.roomId === roomId && opening.wallIndex === wallIndex);
-    const opening = fitOpeningToRoom({ id: existing?.id ?? newId('opening'), roomId, wallIndex, kind, offset: 0.5, width, height, sillHeight }, room);
+    let offset = findAvailableOpeningOffset(wallLength, width, existing);
+    if (offset === undefined && width > 0.25) { width = 0.25; offset = findAvailableOpeningOffset(wallLength, width, existing); }
+    if (offset === undefined) return { message: 'На стене не осталось места для нового проёма' };
+    const opening = fitOpeningToRoom({ id: newId('opening'), roomId, wallIndex, kind, offset, width, height, sillHeight }, room);
     if (!opening) return { message: 'Стена слишком мала для проёма' };
-    return { openings: existing ? state.openings.map((item) => item.id === existing.id ? opening : item) : [...state.openings, opening], message: kind === 'door' ? 'Дверной проём добавлен' : 'Оконный проём добавлен' };
+    return { openings: [...state.openings, opening], message: kind === 'door' ? 'Дверной проём добавлен' : 'Оконный проём добавлен' };
   }),
-  updateWallOpening: (id, patch) => set((state) => ({ openings: state.openings.map((opening) => {
-    if (opening.id !== id) return opening;
-    const room = state.rooms.find((item) => item.id === opening.roomId); if (!room) return opening;
-    return fitOpeningToRoom({ ...opening, width: patch.width ?? opening.width, height: patch.height ?? opening.height,
-      sillHeight: patch.sillHeight ?? opening.sillHeight, offset: patch.offset ?? opening.offset }, room) ?? opening;
-  }) })),
+  updateWallOpening: (id, patch) => set((state) => {
+    const opening = state.openings.find((item) => item.id === id); if (!opening) return state;
+    const room = state.rooms.find((item) => item.id === opening.roomId); if (!room) return state;
+    const fitted = fitOpeningToRoom({ ...opening, width: patch.width ?? opening.width, height: patch.height ?? opening.height,
+      sillHeight: patch.sillHeight ?? opening.sillHeight, offset: patch.offset ?? opening.offset }, room);
+    const vertices = roomVertices(room); const start = vertices[opening.wallIndex]; const end = vertices[(opening.wallIndex + 1) % vertices.length];
+    if (!fitted || !start || !end) return state;
+    const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    const others = state.openings.filter((item) => item.roomId === opening.roomId && item.wallIndex === opening.wallIndex && item.id !== id);
+    if (openingsOverlap(fitted, others, length)) return { message: 'Проёмы не должны пересекаться; оставьте между ними 0,12 м' };
+    return { openings: state.openings.map((item) => item.id === id ? fitted : item) };
+  }),
   removeWallOpening: (id) => set((state) => ({ openings: state.openings.filter((opening) => opening.id !== id), message: 'Проём удалён' })),
   addFloor: () => set((state) => {
     if (state.floors.length >= 12) return { message: 'Можно создать не больше 12 этажей' };
@@ -721,11 +767,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
         width: room.width * factor, depth: room.depth * factor,
         ...(room.vertices ? { vertices: room.vertices.map((point) => [point[0] * factor, point[1] * factor] as [number, number]) } : {}) });
     });
-    const openings = state.openings.flatMap((opening) => {
-      if (!roomIds.has(opening.roomId)) return [opening];
-      const room = rooms.find((candidate) => candidate.id === opening.roomId);
-      const fitted = room ? fitOpeningToRoom(opening, room) : undefined; return fitted ? [fitted] : [];
-    });
+    const openings = state.openings.filter((opening) => !roomIds.has(opening.roomId));
+    for (const room of rooms) {
+      if (roomIds.has(room.id)) openings.push(...fitRoomOpeningGroups(state.openings.filter((opening) => opening.roomId === room.id), room));
+    }
     return { rooms, openings, modelInstances: state.modelInstances.map((model) => modelIds.has(model.id)
       ? normalizedModel({ ...model, x: pivot.x + (model.x - pivot.x) * factor, z: pivot.z + (model.z - pivot.z) * factor, scale: model.scale * factor }) : model) };
   }),

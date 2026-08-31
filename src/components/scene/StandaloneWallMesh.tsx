@@ -4,6 +4,7 @@ import type { ThreeEvent } from '@react-three/fiber';
 import { BufferGeometry, Float32BufferAttribute } from 'three';
 
 import type { WallJoinOffsets } from '../../lib/wallJoins';
+import { layoutOpenings } from '../../lib/openings';
 import { useEditorStore } from '../../store/editorStore';
 import type { PlanWall, StandaloneWallOpening } from '../../types';
 
@@ -72,40 +73,45 @@ function OpeningDecoration({ opening, center, thickness, active }: { opening: St
 
 export function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: PlanWall; joins: WallJoinOffsets; elevation: number; active: boolean }) {
   const selection = useEditorStore((state) => state.selection);
-  const opening = useEditorStore((state) => state.wallOpenings.find((item) => item.wallId === wall.id));
+  const allOpenings = useEditorStore((state) => state.wallOpenings);
   const showDimensions = useEditorStore((state) => state.showDimensions);
   const wallToolActive = useEditorStore((state) => state.tool === 'wall');
   const select = useEditorStore((state) => state.select);
   const dx = wall.endX - wall.startX; const dz = wall.endZ - wall.startZ;
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
   const selected = selection?.kind === 'partition' && selection.id === wall.id;
+  const openings = useMemo(() => layoutOpenings(allOpenings.filter((item) => item.wallId === wall.id), length, wall.height),
+    [allOpenings, length, wall.height, wall.id]);
   const choose = (event: ThreeEvent<MouseEvent>) => {
     if (!active || wallToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'partition', id: wall.id });
   };
-  const center = opening ? Math.min(length / 2 - opening.width / 2, Math.max(-length / 2 + opening.width / 2, -length / 2 + opening.offset * length)) : 0;
-  const topHeight = opening ? wall.height - opening.sillHeight - opening.height : 0;
   const wallStart = -length / 2;
   const wallEnd = length / 2;
   const startPositive = wallStart + joins.start.positive;
   const startNegative = wallStart + joins.start.negative;
   const endPositive = wallEnd + joins.end.positive;
   const endNegative = wallEnd + joins.end.negative;
-  const openingStart = opening ? center - opening.width / 2 : wallEnd;
-  const openingEnd = opening ? center + opening.width / 2 : wallEnd;
+  const solidSpans = useMemo(() => {
+    const spans: Array<{ start: number; end: number }> = [];
+    let start = wallStart;
+    for (const opening of openings) { spans.push({ start, end: opening.start }); start = opening.end; }
+    spans.push({ start, end: wallEnd });
+    return spans;
+  }, [openings, wallEnd, wallStart]);
 
   return <group onClick={choose} position={[(wall.startX + wall.endX) / 2, elevation + 0.12, (wall.startZ + wall.endZ) / 2]} rotation={[0, -angle, 0]}>
-    <WallSegment active={active} bottom={0} endNegative={openingStart} endPositive={openingStart} height={wall.height} selected={selected}
-      startNegative={startNegative} startPositive={startPositive} wall={wall} />
-    {opening ? <>
-      <WallSegment active={active} bottom={0} endNegative={endNegative} endPositive={endPositive} height={wall.height} selected={selected}
-        startNegative={openingEnd} startPositive={openingEnd} wall={wall} />
-      <WallSegment active={active} bottom={0} endNegative={openingEnd} endPositive={openingEnd} height={opening.sillHeight} selected={selected}
-        startNegative={openingStart} startPositive={openingStart} wall={wall} />
-      <WallSegment active={active} bottom={opening.sillHeight + opening.height} endNegative={openingEnd} endPositive={openingEnd} height={topHeight} selected={selected}
-        startNegative={openingStart} startPositive={openingStart} wall={wall} />
-      <OpeningDecoration active={active} center={center} opening={opening} thickness={wall.thickness} />
-    </> : null}
+    {solidSpans.map((span, index) => <WallSegment active={active} bottom={0}
+      endNegative={index === solidSpans.length - 1 ? endNegative : span.end} endPositive={index === solidSpans.length - 1 ? endPositive : span.end}
+      height={wall.height} key={`solid-${index}`} selected={selected}
+      startNegative={index === 0 ? startNegative : span.start} startPositive={index === 0 ? startPositive : span.start} wall={wall} />)}
+    {openings.map(({ opening, center, start, end, height, sillHeight }) => <group key={opening.id}>
+      <WallSegment active={active} bottom={0} endNegative={end} endPositive={end} height={sillHeight} selected={selected}
+        startNegative={start} startPositive={start} wall={wall} />
+      <WallSegment active={active} bottom={sillHeight + height} endNegative={end} endPositive={end}
+        height={wall.height - sillHeight - height} selected={selected} startNegative={start} startPositive={start} wall={wall} />
+      <OpeningDecoration active={active} center={center} opening={{ ...opening, width: end - start, height, sillHeight }} thickness={wall.thickness} />
+    </group>)}
     {active && (showDimensions || selected) ? <Html center distanceFactor={10} position={[0, wall.height + 0.28, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[25, 0]}>
       <div className="wall-measure-label">{length.toFixed(2)} м</div>
     </Html> : null}

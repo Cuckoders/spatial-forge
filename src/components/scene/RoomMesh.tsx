@@ -4,6 +4,7 @@ import { type ThreeEvent, useLoader } from '@react-three/fiber';
 import { Color, DoubleSide, RepeatWrapping, Shape, ShapeGeometry, SRGBColorSpace, TextureLoader } from 'three';
 
 import { roomArea, roomVertices, wallId } from '../../lib/geometry';
+import { layoutOpenings } from '../../lib/openings';
 import { useEditorStore } from '../../store/editorStore';
 import type { PlanRoom, WallOpening } from '../../types';
 
@@ -85,31 +86,34 @@ function OpeningDecoration({ opening, center, thickness, active }: { opening: Wa
 function Wall({ room, wallIndex, start, end, active, selected }: { room: PlanRoom; wallIndex: number; start: readonly [number, number]; end: readonly [number, number]; active: boolean; selected: boolean }) {
   const finish = useEditorStore((state) => state.wallFinishes[wallId(room.id, wallIndex)]);
   const textureUrl = useEditorStore((state) => finish?.textureId ? state.textures.find((texture) => texture.id === finish.textureId)?.url : undefined);
-  const opening = useEditorStore((state) => state.openings.find((item) => item.roomId === room.id && item.wallIndex === wallIndex));
+  const allOpenings = useEditorStore((state) => state.openings);
   const select = useEditorStore((state) => state.select);
   const dx = end[0] - start[0]; const dz = end[1] - start[1];
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
   const opacity = active ? 1 : 0.15; const color = finish?.color ?? '#E9E4DA';
+  const openings = useMemo(() => layoutOpenings(allOpenings.filter((item) => item.roomId === room.id && item.wallIndex === wallIndex), length, room.wallHeight),
+    [allOpenings, length, room.id, room.wallHeight, wallIndex]);
+  const solidSpans = useMemo(() => {
+    const spans: Array<{ start: number; end: number }> = [];
+    let start = -length / 2;
+    for (const opening of openings) { spans.push({ start, end: opening.start }); start = opening.end; }
+    spans.push({ start, end: length / 2 });
+    return spans;
+  }, [length, openings]);
   const choose = (event: ThreeEvent<MouseEvent>) => {
     if (!active || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'wall', id: wallId(room.id, wallIndex), roomId: room.id, wallIndex });
   };
-  if (!opening) return <group onClick={choose} position={[(start[0] + end[0]) / 2, 0.12, (start[1] + end[1]) / 2]} rotation={[0, -angle, 0]}>
-    <WallSegment color={color} height={room.wallHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={length} x={0} y={room.wallHeight / 2} />
-  </group>;
-  const openingWidth = Math.min(opening.width, Math.max(0.2, length - 0.08));
-  const center = Math.min(length / 2 - openingWidth / 2, Math.max(-length / 2 + openingWidth / 2, -length / 2 + opening.offset * length));
-  const sill = Math.min(opening.sillHeight, Math.max(0, room.wallHeight - 0.3));
-  const openingHeight = Math.min(opening.height, Math.max(0.3, room.wallHeight - sill - 0.03));
-  const leftWidth = center - openingWidth / 2 + length / 2;
-  const rightWidth = length / 2 - center - openingWidth / 2;
-  const topHeight = room.wallHeight - sill - openingHeight;
   return <group onClick={choose} position={[(start[0] + end[0]) / 2, 0.12, (start[1] + end[1]) / 2]} rotation={[0, -angle, 0]}>
-    <WallSegment color={color} height={room.wallHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={leftWidth} x={-length / 2 + leftWidth / 2} y={room.wallHeight / 2} />
-    <WallSegment color={color} height={room.wallHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={rightWidth} x={length / 2 - rightWidth / 2} y={room.wallHeight / 2} />
-    <WallSegment color={color} height={sill} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={openingWidth} x={center} y={sill / 2} />
-    <WallSegment color={color} height={topHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness} width={openingWidth} x={center} y={sill + openingHeight + topHeight / 2} />
-    <OpeningDecoration active={active} center={center} opening={{ ...opening, width: openingWidth, height: openingHeight, sillHeight: sill }} thickness={room.wallThickness} />
+    {solidSpans.map((span, index) => <WallSegment color={color} height={room.wallHeight} key={`solid-${index}`} opacity={opacity} selected={selected}
+      textureUrl={textureUrl} thickness={room.wallThickness} width={span.end - span.start} x={(span.start + span.end) / 2} y={room.wallHeight / 2} />)}
+    {openings.map(({ opening, center, start: openingStart, end: openingEnd, height, sillHeight }) => <group key={opening.id}>
+      <WallSegment color={color} height={sillHeight} opacity={opacity} selected={selected} textureUrl={textureUrl} thickness={room.wallThickness}
+        width={openingEnd - openingStart} x={center} y={sillHeight / 2} />
+      <WallSegment color={color} height={room.wallHeight - sillHeight - height} opacity={opacity} selected={selected} textureUrl={textureUrl}
+        thickness={room.wallThickness} width={openingEnd - openingStart} x={center} y={sillHeight + height + (room.wallHeight - sillHeight - height) / 2} />
+      <OpeningDecoration active={active} center={center} opening={{ ...opening, width: openingEnd - openingStart, height, sillHeight }} thickness={room.wallThickness} />
+    </group>)}
   </group>;
 }
 

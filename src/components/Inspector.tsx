@@ -2,10 +2,10 @@ import { BrickWall, Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, R
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
-import type { ObjectSelection } from '../types';
+import type { ObjectSelection, StandaloneWallOpening, WallOpening } from '../types';
 
-function NumericField({ label, value, min, max, step = 0.1, unit, onChange }: { label: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (value: number) => void }) {
-  return <label className="field"><span>{label}</span><div><input max={max} min={min} onChange={(event) => onChange(event.target.valueAsNumber)} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
+function NumericField({ label, ariaLabel, value, min, max, step = 0.1, unit, onChange }: { label: string; ariaLabel?: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (value: number) => void }) {
+  return <label className="field"><span>{label}</span><div><input aria-label={ariaLabel} max={max} min={min} onChange={(event) => onChange(event.target.valueAsNumber)} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
 }
 
 function pluralize(count: number, one: string, few: string, many: string) {
@@ -26,6 +26,26 @@ function EmptyInspector() {
     <section className="inspector-section"><div className="inspector-title"><span>Площадка</span><Ruler size={16} /></div><div className="field-row"><NumericField label="Ширина" max={200} min={4} onChange={(width) => updateSite({ width })} unit="м" value={site.width} /><NumericField label="Глубина" max={200} min={4} onChange={(depth) => updateSite({ depth })} unit="м" value={site.depth} /></div></section>
     <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Shift</kbd> группа · <kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>W/E/S</kbd> трансформация · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
   </>;
+}
+
+type EditableOpening = Pick<StandaloneWallOpening | WallOpening, 'id' | 'kind' | 'offset' | 'width' | 'height' | 'sillHeight'>;
+
+function OpeningsEditor({ openings, onAdd, onUpdate, onRemove }: {
+  openings: EditableOpening[];
+  onAdd: (kind: EditableOpening['kind']) => void;
+  onUpdate: (id: string, patch: Partial<EditableOpening>) => void;
+  onRemove: (id: string) => void;
+}) {
+  const sorted = [...openings].sort((left, right) => left.offset - right.offset);
+  return <section className="inspector-section"><div className="inspector-title"><span>Двери и окна</span>{openings.some((opening) => opening.kind === 'door') ? <DoorOpen size={16} /> : <PanelTop size={16} />}</div>
+    <div className="opening-choices"><button onClick={() => onAdd('door')} type="button"><DoorOpen size={17} /> Добавить дверь</button><button onClick={() => onAdd('window')} type="button"><PanelTop size={17} /> Добавить окно</button></div>
+    {sorted.length ? <div className="opening-list">{sorted.map((opening, index) => {
+      const name = `${opening.kind === 'door' ? 'Дверь' : 'Окно'} ${index + 1}`;
+      return <div className="opening-card" key={opening.id}><div className="opening-card-title"><span>{opening.kind === 'door' ? <DoorOpen size={14} /> : <PanelTop size={14} />}{name}</span><b>{Math.round(opening.offset * 100)}%</b></div>
+        <div className="opening-fields"><div className="field-row"><NumericField ariaLabel={`${name}: положение`} label="Положение" max={98} min={2} onChange={(offset) => onUpdate(opening.id, { offset: offset / 100 })} step={1} unit="%" value={opening.offset * 100} /><NumericField ariaLabel={`${name}: ширина`} label="Ширина" max={5} min={0.25} onChange={(width) => onUpdate(opening.id, { width })} unit="м" value={opening.width} /></div><div className="field-row"><NumericField ariaLabel={`${name}: высота`} label="Высота" max={4} min={0.3} onChange={(height) => onUpdate(opening.id, { height })} unit="м" value={opening.height} />{opening.kind === 'window' ? <NumericField ariaLabel={`${name}: подоконник`} label="Подоконник" max={3} min={0} onChange={(sillHeight) => onUpdate(opening.id, { sillHeight })} unit="м" value={opening.sillHeight} /> : <div />}</div><button aria-label={`Удалить ${name.toLowerCase()}`} className="remove-opening" onClick={() => onRemove(opening.id)} type="button"><Trash2 size={14} /> Удалить проём</button></div>
+      </div>;
+    })}</div> : <p className="empty-materials">Добавьте до восьми проёмов. Редактор автоматически найдёт свободное место и не допустит пересечений.</p>}
+  </section>;
 }
 
 function RoomInspector({ id, selectedVertexIndex }: { id: string; selectedVertexIndex?: number }) {
@@ -51,7 +71,8 @@ function RoomInspector({ id, selectedVertexIndex }: { id: string; selectedVertex
 
 function PartitionInspector({ id }: { id: string }) {
   const wall = useEditorStore((state) => state.walls.find((item) => item.id === id));
-  const opening = useEditorStore((state) => state.wallOpenings.find((item) => item.wallId === id));
+  const wallOpenings = useEditorStore((state) => state.wallOpenings);
+  const openings = wallOpenings.filter((item) => item.wallId === id);
   const updateWall = useEditorStore((state) => state.updateWall);
   const duplicateWall = useEditorStore((state) => state.duplicateWall);
   const removeWall = useEditorStore((state) => state.removeWall);
@@ -72,10 +93,7 @@ function PartitionInspector({ id }: { id: string }) {
       <div className="endpoint-label">Начало</div><div className="field-row"><NumericField label="X₁" max={200} min={-200} onChange={(startX) => updateWall(wall.id, { startX })} unit="м" value={wall.startX} /><NumericField label="Z₁" max={200} min={-200} onChange={(startZ) => updateWall(wall.id, { startZ })} unit="м" value={wall.startZ} /></div>
       <div className="endpoint-label">Конец</div><div className="field-row"><NumericField label="X₂" max={200} min={-200} onChange={(endX) => updateWall(wall.id, { endX })} unit="м" value={wall.endX} /><NumericField label="Z₂" max={200} min={-200} onChange={(endZ) => updateWall(wall.id, { endZ })} unit="м" value={wall.endZ} /></div>
     </section>
-    <section className="inspector-section"><div className="inspector-title"><span>Дверь или окно</span>{opening?.kind === 'door' ? <DoorOpen size={16} /> : <PanelTop size={16} />}</div>
-      <div className="opening-choices"><button className={opening?.kind === 'door' ? 'active' : ''} onClick={() => addOpening(wall.id, 'door')} type="button"><DoorOpen size={17} /> Дверь</button><button className={opening?.kind === 'window' ? 'active' : ''} onClick={() => addOpening(wall.id, 'window')} type="button"><PanelTop size={17} /> Окно</button></div>
-      {opening ? <div className="opening-fields"><div className="field-row"><NumericField label="Положение" max={98} min={2} onChange={(offset) => updateOpening(opening.id, { offset: offset / 100 })} step={1} unit="%" value={opening.offset * 100} /><NumericField label="Ширина" max={5} min={0.25} onChange={(width) => updateOpening(opening.id, { width })} unit="м" value={opening.width} /></div><div className="field-row"><NumericField label="Высота" max={4} min={0.3} onChange={(height) => updateOpening(opening.id, { height })} unit="м" value={opening.height} />{opening.kind === 'window' ? <NumericField label="Подоконник" max={3} min={0} onChange={(sillHeight) => updateOpening(opening.id, { sillHeight })} unit="м" value={opening.sillHeight} /> : <div />}</div><button className="remove-opening" onClick={() => removeOpening(opening.id)} type="button"><Trash2 size={14} /> Удалить проём</button></div> : <p className="empty-materials">Добавьте один проём. Геометрия стены автоматически разделится вокруг него.</p>}
-    </section>
+    <OpeningsEditor openings={openings} onAdd={(kind) => addOpening(wall.id, kind)} onRemove={removeOpening} onUpdate={updateOpening} />
     <section className="inspector-section"><div className="inspector-title"><span>Размеры стены</span><BrickWall size={16} /></div>
       <NumericField label="Точная длина" max={100} min={0.25} onChange={setLength} step={0.05} unit="м" value={length} />
       <div className="field-row"><NumericField label="Высота" max={12} min={0.2} onChange={(height) => updateWall(wall.id, { height })} unit="м" value={wall.height} /><NumericField label="Толщина" max={1} min={0.05} onChange={(thickness) => updateWall(wall.id, { thickness })} step={0.01} unit="м" value={wall.thickness} /></div>
@@ -88,7 +106,8 @@ function PartitionInspector({ id }: { id: string }) {
 function WallInspector({ roomId, wallIndex }: { roomId: string; wallIndex: number }) {
   const room = useEditorStore((state) => state.rooms.find((item) => item.id === roomId));
   const finish = useEditorStore((state) => state.wallFinishes[wallId(roomId, wallIndex)]);
-  const opening = useEditorStore((state) => state.openings.find((item) => item.roomId === roomId && item.wallIndex === wallIndex));
+  const allOpenings = useEditorStore((state) => state.openings);
+  const openings = allOpenings.filter((item) => item.roomId === roomId && item.wallIndex === wallIndex);
   const textures = useEditorStore((state) => state.textures);
   const setWallFinish = useEditorStore((state) => state.setWallFinish);
   const clearWallFinish = useEditorStore((state) => state.clearWallFinish);
@@ -99,10 +118,7 @@ function WallInspector({ roomId, wallIndex }: { roomId: string; wallIndex: numbe
   if (!room) return <EmptyInspector />;
   return <>
     <div className="inspector-head"><span className="selection-tag">Отдельная стена · грань {wallIndex + 1}</span><h2>{room.name}</h2></div>
-    <section className="inspector-section"><div className="inspector-title"><span>Двери и окна</span>{opening?.kind === 'door' ? <DoorOpen size={16} /> : <PanelTop size={16} />}</div>
-      <div className="opening-choices"><button className={opening?.kind === 'door' ? 'active' : ''} onClick={() => addWallOpening(roomId, wallIndex, 'door')} type="button"><DoorOpen size={17} /> Дверь</button><button className={opening?.kind === 'window' ? 'active' : ''} onClick={() => addWallOpening(roomId, wallIndex, 'window')} type="button"><PanelTop size={17} /> Окно</button></div>
-      {opening ? <div className="opening-fields"><div className="field-row"><NumericField label="Положение" max={98} min={2} onChange={(offset) => updateWallOpening(opening.id, { offset: offset / 100 })} step={1} unit="%" value={opening.offset * 100} /><NumericField label="Ширина" max={5} min={0.25} onChange={(width) => updateWallOpening(opening.id, { width })} unit="м" value={opening.width} /></div><div className="field-row"><NumericField label="Высота" max={4} min={0.3} onChange={(height) => updateWallOpening(opening.id, { height })} unit="м" value={opening.height} />{opening.kind === 'window' ? <NumericField label="Подоконник" max={3} min={0} onChange={(sillHeight) => updateWallOpening(opening.id, { sillHeight })} unit="м" value={opening.sillHeight} /> : <div />}</div><button className="remove-opening" onClick={() => removeWallOpening(opening.id)} type="button"><Trash2 size={14} /> Удалить проём</button></div> : <p className="empty-materials">Добавьте один проём на выбранную грань. Стена автоматически разделится вокруг него.</p>}
-    </section>
+    <OpeningsEditor openings={openings} onAdd={(kind) => addWallOpening(roomId, wallIndex, kind)} onRemove={removeWallOpening} onUpdate={updateWallOpening} />
     <section className="inspector-section"><div className="inspector-title"><span>Цвет стены</span><Droplets size={16} /></div><label className="color-field"><input onChange={(event) => setWallFinish(roomId, wallIndex, { color: event.target.value, ...(finish?.textureId ? { textureId: finish.textureId } : {}) })} type="color" value={color} /><span>{color.toUpperCase()}</span></label><div className="palette">{['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'].map((item) => <button aria-label={`Цвет ${item}`} className={item.toLowerCase() === color.toLowerCase() && !finish?.textureId ? 'active' : ''} key={item} onClick={() => setWallFinish(roomId, wallIndex, { color: item })} style={{ background: item }} type="button" />)}</div></section>
     <section className="inspector-section"><div className="inspector-title"><span>Текстура обоев</span><BoxIcon /></div>{textures.length ? <div className="texture-grid">{textures.map((texture) => <button className={finish?.textureId === texture.id ? 'active' : ''} key={texture.id} onClick={() => setWallFinish(roomId, wallIndex, { color, textureId: texture.id })} title={texture.name} type="button"><img alt="" src={texture.url} /><span>{texture.name}</span></button>)}</div> : <p className="empty-materials">Сначала загрузите текстуру в панели слева. Она применится только к этой грани.</p>}</section>
     <button className="wide-action" onClick={() => clearWallFinish(roomId, wallIndex)} type="button">Сбросить отделку этой стены</button>
