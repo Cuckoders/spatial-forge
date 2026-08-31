@@ -71,10 +71,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .upload-button b { font-size: 10px; }
 .upload-button small { font-size: 8px; color: var(--muted); margin-top: 2px; }
 .custom-assets { margin-top: 9px; display: grid; gap: 5px; }
-.custom-assets button { width: 100%; border: 0; background: #e7e8e1; border-radius: 7px; padding: 7px 8px; display: flex; align-items: center; gap: 7px; cursor: pointer; text-align: left; }
-.custom-assets button span { display: grid; flex: 1; min-width: 0; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.custom-assets button small { color: var(--muted); font-size: 8px; }
+.custom-asset-row { display: grid; grid-template-columns: minmax(0, 1fr) 29px; gap: 3px; }
+.custom-assets button { border: 0; background: #e7e8e1; border-radius: 7px; cursor: pointer; }
+.custom-assets .asset-place { width: 100%; padding: 7px 8px; display: flex; align-items: center; gap: 7px; text-align: left; }
+.custom-assets .asset-place span { display: grid; flex: 1; min-width: 0; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-assets .asset-place small { color: var(--muted); font-size: 8px; }
+.custom-assets .asset-delete { display: grid; place-items: center; color: #9c6561; }
 .asset-count { color: var(--muted); font-size: 9px; margin-top: 9px; }
+.texture-assets { display: grid; gap: 4px; }
+.texture-asset-row { height: 31px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 25px; align-items: center; gap: 6px; padding: 3px; background: #e7e8e1; border-radius: 6px; }
+.texture-asset-row img { width: 28px; height: 25px; object-fit: cover; border-radius: 4px; }
+.texture-asset-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.texture-asset-row button { height: 24px; border: 0; background: transparent; color: #9c6561; display: grid; place-items: center; cursor: pointer; }
 
 .viewport { min-width: 0; position: relative; overflow: hidden; background: #d7dbd1; }
 .canvas-shell, .canvas-shell canvas { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }

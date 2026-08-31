@@ -7,6 +7,7 @@ import { PlannerCanvas } from './components/scene/PlannerCanvas';
 import { ToolPanel } from './components/ToolPanel';
 import { TopBar } from './components/TopBar';
 import { roomArea } from './lib/geometry';
+import { loadPersistedAssets } from './lib/assetStorage';
 import { useEditorStore } from './store/editorStore';
 
 function ViewControls() {
@@ -49,6 +50,15 @@ export default function App() {
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
   const toggleDimensions = useEditorStore((state) => state.toggleDimensions);
+  const hydrateAssets = useEditorStore((state) => state.hydrateAssets);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadPersistedAssets().then(({ textures, models }) => {
+      if (!cancelled) hydrateAssets(textures, models);
+    }).catch(() => { if (!cancelled) notify('Локальная библиотека недоступна — файлы будут работать только в этой сессии'); });
+    return () => { cancelled = true; };
+  }, [hydrateAssets, notify]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

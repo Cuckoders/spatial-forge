@@ -1,6 +1,7 @@
 import { useRef, type ChangeEvent } from 'react';
-import { Armchair, BedDouble, Box, Cuboid, ImagePlus, MousePointer2, MoveUpRight, Square, TableProperties, Trees, Triangle, Upload } from 'lucide-react';
+import { Armchair, BedDouble, Box, Cuboid, ImagePlus, MousePointer2, MoveUpRight, Square, TableProperties, Trash2, Trees, Triangle, Upload } from 'lucide-react';
 
+import { deletePersistedAsset, persistAsset } from '../lib/assetStorage';
 import { createModelAsset, createTextureAsset } from '../lib/files';
 import { useEditorStore } from '../store/editorStore';
 import type { BuiltInModelKind, EditorTool } from '../types';
@@ -29,7 +30,9 @@ export function ToolPanel() {
   const modelAssets = useEditorStore((state) => state.modelAssets);
   const setTool = useEditorStore((state) => state.setTool);
   const addTexture = useEditorStore((state) => state.addTexture);
+  const removeTexture = useEditorStore((state) => state.removeTexture);
   const addModelAsset = useEditorStore((state) => state.addModelAsset);
+  const removeModelAsset = useEditorStore((state) => state.removeModelAsset);
   const addBuiltInModel = useEditorStore((state) => state.addBuiltInModel);
   const addCustomModel = useEditorStore((state) => state.addCustomModel);
   const notify = useEditorStore((state) => state.notify);
@@ -37,14 +40,28 @@ export function ToolPanel() {
   const uploadTexture = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
-    try { addTexture(await createTextureAsset(file)); }
+    try {
+      const asset = await createTextureAsset(file); addTexture(asset);
+      try { await persistAsset('texture', asset, file); } catch { notify('Текстура добавлена только на текущую сессию'); }
+    }
     catch (error) { notify(error instanceof Error ? error.message : 'Не удалось загрузить текстуру'); }
   };
   const uploadModel = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
-    try { addModelAsset(await createModelAsset(file)); }
+    try {
+      const asset = await createModelAsset(file); addModelAsset(asset);
+      try { await persistAsset('model', asset, file); } catch { notify('Модель добавлена только на текущую сессию'); }
+    }
     catch (error) { notify(error instanceof Error ? error.message : 'Не удалось загрузить модель'); }
+  };
+  const deleteTexture = async (id: string) => {
+    try { await deletePersistedAsset(id); removeTexture(id); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Не удалось удалить текстуру'); }
+  };
+  const deleteModel = async (id: string) => {
+    try { await deletePersistedAsset(id); removeModelAsset(id); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Не удалось удалить модель'); }
   };
 
   return (
@@ -69,9 +86,9 @@ export function ToolPanel() {
         <button className="upload-button" onClick={() => textureInput.current?.click()} type="button"><ImagePlus size={18} /><span><b>Текстура стены</b><small>PNG, JPEG, WebP · до 8 МБ</small></span></button>
         <button className="upload-button" onClick={() => modelInput.current?.click()} type="button"><Upload size={18} /><span><b>3D-модель</b><small>Самодостаточная GLB · до 25 МБ</small></span></button>
         {modelAssets.length ? <div className="custom-assets">
-          {modelAssets.map((asset) => <button key={asset.id} onClick={() => addCustomModel(asset.id)} title="Разместить модель" type="button"><Cuboid size={17} /><span>{asset.name}<small>{fileSize(asset.size)}</small></span><b>+</b></button>)}
+          {modelAssets.map((asset) => <div className="custom-asset-row" key={asset.id}><button className="asset-place" onClick={() => addCustomModel(asset.id)} title="Разместить модель" type="button"><Cuboid size={17} /><span>{asset.name}<small>{fileSize(asset.size)}</small></span><b>+</b></button><button className="asset-delete" onClick={() => void deleteModel(asset.id)} title="Удалить модель из библиотеки" type="button"><Trash2 size={13} /></button></div>)}
         </div> : null}
-        {textures.length ? <div className="asset-count">Загружено текстур: <b>{textures.length}</b></div> : null}
+        {textures.length ? <div className="texture-assets"><div className="asset-count">Локальные текстуры: <b>{textures.length}</b></div>{textures.map((texture) => <div className="texture-asset-row" key={texture.id}><img alt="" src={texture.url} /><span title={texture.name}>{texture.name}</span><button onClick={() => void deleteTexture(texture.id)} title="Удалить текстуру" type="button"><Trash2 size={12} /></button></div>)}</div> : null}
       </section>
       <input accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" className="visually-hidden" onChange={uploadTexture} ref={textureInput} type="file" />
       <input accept="model/gltf-binary,.glb" className="visually-hidden" onChange={uploadModel} ref={modelInput} type="file" />

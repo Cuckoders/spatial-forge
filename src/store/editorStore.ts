@@ -49,7 +49,10 @@ interface EditorState {
   toggleAllFloors: () => void;
   toggleDimensions: () => void;
   addTexture: (asset: TextureAsset) => void;
+  removeTexture: (id: string) => void;
   addModelAsset: (asset: ModelAsset) => void;
+  removeModelAsset: (id: string) => void;
+  hydrateAssets: (textures: TextureAsset[], models: ModelAsset[]) => void;
   addBuiltInModel: (kind: BuiltInModelKind) => void;
   addCustomModel: (assetId: string) => void;
   updateModel: (id: string, patch: Partial<ModelInstance>) => void;
@@ -275,7 +278,23 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   toggleAllFloors: () => set((state) => ({ showAllFloors: !state.showAllFloors })),
   toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
   addTexture: (asset) => set((state) => ({ textures: [...state.textures, asset], message: 'Текстура готова к применению' })),
+  removeTexture: (id) => set((state) => ({
+    textures: state.textures.filter((texture) => texture.id !== id),
+    wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).map(([key, finish]) => [key,
+      finish.textureId === id ? { color: finish.color } : finish])),
+    message: 'Текстура удалена из библиотеки',
+  })),
   addModelAsset: (asset) => set((state) => ({ modelAssets: [...state.modelAssets, asset], message: 'GLB-модель добавлена в библиотеку' })),
+  removeModelAsset: (id) => set((state) => ({
+    modelAssets: state.modelAssets.filter((asset) => asset.id !== id),
+    modelInstances: state.modelInstances.filter((model) => model.assetId !== id),
+    selection: state.selection?.kind === 'model' && state.modelInstances.some((model) => model.id === state.selection?.id && model.assetId === id) ? null : state.selection,
+    message: 'Модель и её экземпляры удалены',
+  })),
+  hydrateAssets: (textures, models) => {
+    restoringHistory = true;
+    set({ textures, modelAssets: models });
+  },
   addBuiltInModel: (kind) => set((state) => {
     const labels: Record<BuiltInModelKind, string> = { sofa: 'Диван', table: 'Стол', bed: 'Кровать', tree: 'Дерево', stairs: 'Лестница' };
     const model: ModelInstance = { id: newId('object'), floorId: state.activeFloorId, assetId: `builtin:${kind}`, name: labels[kind], x: 0, y: 0, z: 0, rotation: 0, scale: 1 };

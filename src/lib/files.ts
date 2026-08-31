@@ -8,6 +8,7 @@ export const MAX_MODEL_FILE_BYTES = 25 * 1024 * 1024;
 
 const idPattern = /^[A-Za-z0-9:_-]{1,80}$/;
 const colorPattern = /^#[0-9A-Fa-f]{6}$/;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const builtInAssets = new Set<BuiltInModelKind>(['sofa', 'table', 'bed', 'tree', 'stairs']);
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const finite = (value: unknown, minimum: number, maximum: number): value is number => typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
@@ -42,7 +43,8 @@ function readRoom(value: unknown, floorIds: Set<string>): PlanRoom | undefined {
 
 function readModel(value: unknown, floorIds: Set<string>): ModelInstance | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)
-    || typeof value.assetId !== 'string' || !value.assetId.startsWith('builtin:') || !builtInAssets.has(value.assetId.slice(8) as BuiltInModelKind)) return undefined;
+    || typeof value.assetId !== 'string' || (!uuidPattern.test(value.assetId)
+      && (!value.assetId.startsWith('builtin:') || !builtInAssets.has(value.assetId.slice(8) as BuiltInModelKind)))) return undefined;
   const name = text(value.name, 80);
   if (!name || !finite(value.x, -200, 200) || !finite(value.y, -10, 50) || !finite(value.z, -200, 200)
     || !finite(value.rotation, -Math.PI * 20, Math.PI * 20) || !finite(value.scale, 0.05, 20)) return undefined;
@@ -94,10 +96,11 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
     || new Set(validOpenings.map((opening) => wallIdForOpening(opening))).size !== validOpenings.length) throw new Error('Проёмы в файле повторяются.');
   const wallFinishes: Record<string, WallFinish> = {};
   for (const [key, finish] of Object.entries(value.wallFinishes)) {
-    if (!idPattern.test(key) || !isRecord(finish) || typeof finish.color !== 'string' || !colorPattern.test(finish.color)) {
+    if (!idPattern.test(key) || !isRecord(finish) || typeof finish.color !== 'string' || !colorPattern.test(finish.color)
+      || (finish.textureId !== undefined && (typeof finish.textureId !== 'string' || !uuidPattern.test(finish.textureId)))) {
       throw new Error('В файле есть некорректная отделка стены.');
     }
-    wallFinishes[key] = { color: finish.color };
+    wallFinishes[key] = { color: finish.color, ...(typeof finish.textureId === 'string' ? { textureId: finish.textureId } : {}) };
   }
   const models = value.modelInstances.map((model) => readModel(model, floorIds));
   if (models.some((model) => !model)) throw new Error('В файле есть некорректный объект.');
@@ -109,9 +112,9 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
 const wallIdForOpening = (opening: Pick<WallOpening, 'roomId' | 'wallIndex'>) => `${opening.roomId}:wall:${opening.wallIndex}`;
 
 export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[] }): ProjectDocument {
-  const wallFinishes = Object.fromEntries(Object.entries(input.wallFinishes).map(([id, finish]) => [id, { color: finish.color }]));
+  const wallFinishes = Object.fromEntries(Object.entries(input.wallFinishes).map(([id, finish]) => [id, { color: finish.color, ...(finish.textureId && uuidPattern.test(finish.textureId) ? { textureId: finish.textureId } : {}) }]));
   return { version: 1, name: input.name, projectType: input.projectType, site: input.site, floors: input.floors,
-    rooms: input.rooms, wallFinishes, openings: input.openings, modelInstances: input.modelInstances.filter((model) => model.assetId.startsWith('builtin:')) };
+    rooms: input.rooms, wallFinishes, openings: input.openings, modelInstances: input.modelInstances };
 }
 
 export function saveAutosave(document: ProjectDocument) {
