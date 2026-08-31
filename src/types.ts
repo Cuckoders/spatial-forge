@@ -75,11 +75,15 @@ export interface ModelInstance {
   scale: number;
 }
 
-export type Selection =
+export type ObjectSelection =
   | { kind: 'room'; id: string }
-  | { kind: 'vertex'; roomId: string; vertexIndex: number }
-  | { kind: 'wall'; id: string; roomId: string; wallIndex: number }
   | { kind: 'model'; id: string };
+
+export type Selection =
+  | ObjectSelection
+  | { kind: 'group'; items: ObjectSelection[] }
+  | { kind: 'vertex'; roomId: string; vertexIndex: number }
+  | { kind: 'wall'; id: string; roomId: string; wallIndex: number };
 
 export interface ProjectDocument {
   version: 1;

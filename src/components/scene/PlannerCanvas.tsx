@@ -86,7 +86,7 @@ function SceneContents() {
     if (event.delta > 4) return;
     if (tool === 'rectangle' || tool === 'triangle') { event.stopPropagation(); addRoomAt(tool, event.point.x, event.point.z); }
     else if (tool === 'polygon') { event.stopPropagation(); addPolygonPoint(event.point.x, event.point.z); }
-    else select(null);
+    else if (!event.shiftKey) select(null);
   };
   const onGroundDoubleClick = (event: ThreeEvent<MouseEvent>) => {
     if (tool !== 'polygon') return;
@@ -124,7 +124,7 @@ export function PlannerCanvas() {
   const tool = useEditorStore((state) => state.tool);
   const select = useEditorStore((state) => state.select);
   return <div className={`canvas-shell tool-${tool}`}>
-    <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }} onPointerMissed={() => select(null)} shadows>
+    <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }} onPointerMissed={(event) => { if (!event.shiftKey) select(null); }} shadows>
       <SceneContents />
     </Canvas>
     <div className="canvas-hint"><kbd>ЛКМ</kbd> вращение · <kbd>стрелки</kbd> перемещение выбранного · <kbd>колесо</kbd> масштаб</div>

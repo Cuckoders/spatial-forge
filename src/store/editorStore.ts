@@ -4,7 +4,7 @@ import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -33,7 +33,7 @@ interface EditorState {
   setProjectType: (type: ProjectType) => void;
   updateSite: (patch: Partial<SiteSettings>) => void;
   setTool: (tool: EditorTool) => void;
-  select: (selection: Selection | null) => void;
+  select: (selection: Selection | null, additive?: boolean) => void;
   addRoomAt: (shape: PlanRoom['shape'], x: number, z: number) => void;
   addPolygonPoint: (x: number, z: number) => void;
   completePolygon: () => void;
@@ -66,6 +66,8 @@ interface EditorState {
   updateModel: (id: string, patch: Partial<ModelInstance>) => void;
   duplicateModel: (id: string) => void;
   removeModel: (id: string) => void;
+  moveSelectedObjects: (dx: number, dz: number) => void;
+  duplicateSelection: () => void;
   deleteSelection: () => void;
   rotateSelection: (degrees: number) => void;
   setCameraPreset: (preset: CameraPreset) => void;
@@ -96,6 +98,9 @@ const cleanText = (value: string, maximum: number) => Array.from(value, (charact
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, Number.isFinite(value) ? value : minimum));
 const radians = (degrees: number) => degrees * Math.PI / 180;
 const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+const objectSelectionKey = (selection: ObjectSelection) => `${selection.kind}:${selection.id}`;
+const isObjectSelection = (selection: Selection): selection is ObjectSelection => selection.kind === 'room' || selection.kind === 'model';
+const collapseObjectSelection = (items: ObjectSelection[]): Selection | null => items.length === 0 ? null : items.length === 1 ? items[0]! : { kind: 'group', items };
 
 function demoProject(): ProjectDocument {
   const floors: PlanFloor[] = [
@@ -188,7 +193,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setProjectType: (projectType) => set({ projectType, selection: null }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
   setTool: (tool) => set({ tool, selection: null, draftPolygon: [] }),
-  select: (selection) => set({ selection, tool: 'select', draftPolygon: [] }),
+  select: (selection, additive = false) => set((state) => {
+    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [] };
+    const currentItems = state.selection?.kind === 'group' ? state.selection.items
+      : state.selection && isObjectSelection(state.selection) ? [state.selection] : [];
+    const key = objectSelectionKey(selection);
+    const exists = currentItems.some((item) => objectSelectionKey(item) === key);
+    const items = exists ? currentItems.filter((item) => objectSelectionKey(item) !== key) : [...currentItems, selection];
+    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [] };
+  }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
@@ -429,17 +442,75 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     return { modelInstances: [...state.modelInstances, copy], selection: { kind: 'model', id: copy.id }, message: 'Объект скопирован' };
   }),
   removeModel: (id) => set((state) => ({ modelInstances: state.modelInstances.filter((model) => model.id !== id), selection: state.selection?.kind === 'model' && state.selection.id === id ? null : state.selection })),
+  moveSelectedObjects: (dx, dz) => set((state) => {
+    if (state.selection?.kind !== 'group' || !Number.isFinite(dx) || !Number.isFinite(dz)) return state;
+    const roomIds = new Set(state.selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
+    const modelIds = new Set(state.selection.items.filter((item) => item.kind === 'model').map((item) => item.id));
+    return {
+      rooms: state.rooms.map((room) => roomIds.has(room.id) ? normalizedRoom({ ...room, x: room.x + dx, z: room.z + dz }) : room),
+      modelInstances: state.modelInstances.map((model) => modelIds.has(model.id) ? normalizedModel({ ...model, x: model.x + dx, z: model.z + dz }) : model),
+    };
+  }),
+  duplicateSelection: () => {
+    const selection = get().selection;
+    if (selection?.kind === 'room') { get().duplicateRoom(selection.id); return; }
+    if (selection?.kind === 'model') { get().duplicateModel(selection.id); return; }
+    if (selection?.kind !== 'group') return;
+    set((state) => {
+      const rooms = [...state.rooms]; const modelInstances = [...state.modelInstances]; const openings = [...state.openings];
+      const wallFinishes = { ...state.wallFinishes }; const items: ObjectSelection[] = [];
+      for (const item of selection.items) {
+        if (item.kind === 'room') {
+          const source = state.rooms.find((room) => room.id === item.id); if (!source) continue;
+          const copy = { ...source, id: newId('block'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 1, z: source.z + 1 };
+          rooms.push(copy); items.push({ kind: 'room', id: copy.id });
+          openings.push(...state.openings.filter((opening) => opening.roomId === source.id)
+            .map((opening) => ({ ...opening, id: newId('opening'), roomId: copy.id })));
+          for (const [key, finish] of Object.entries(state.wallFinishes)) {
+            if (key.startsWith(`${source.id}:wall:`)) wallFinishes[`${copy.id}${key.slice(source.id.length)}`] = finish;
+          }
+        } else {
+          const source = state.modelInstances.find((model) => model.id === item.id); if (!source) continue;
+          const copy = { ...source, id: newId('object'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 1, z: source.z + 1 };
+          modelInstances.push(copy); items.push({ kind: 'model', id: copy.id });
+        }
+      }
+      return { rooms, modelInstances, openings, wallFinishes, selection: collapseObjectSelection(items), message: `Скопировано элементов: ${items.length}` };
+    });
+  },
   deleteSelection: () => {
     const selection = get().selection;
     if (selection?.kind === 'room') get().removeRoom(selection.id);
     else if (selection?.kind === 'vertex') get().removePolygonVertex(selection.roomId, selection.vertexIndex);
     else if (selection?.kind === 'model') get().removeModel(selection.id);
     else if (selection?.kind === 'wall') get().clearWallFinish(selection.roomId, selection.wallIndex);
+    else if (selection?.kind === 'group') set((state) => {
+      const roomIds = new Set(selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
+      const modelIds = new Set(selection.items.filter((item) => item.kind === 'model').map((item) => item.id));
+      return {
+        rooms: state.rooms.filter((room) => !roomIds.has(room.id)),
+        modelInstances: state.modelInstances.filter((model) => !modelIds.has(model.id)),
+        openings: state.openings.filter((opening) => !roomIds.has(opening.roomId)),
+        wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => {
+          const separator = key.indexOf(':wall:'); return separator < 0 || !roomIds.has(key.slice(0, separator));
+        })),
+        selection: null,
+        message: `Удалено элементов: ${roomIds.size + modelIds.size}`,
+      };
+    });
   },
   rotateSelection: (degrees) => {
     const selection = get().selection;
     if (selection?.kind === 'room') { const room = get().rooms.find((item) => item.id === selection.id); if (room) get().updateRoom(room.id, { rotation: room.rotation + radians(degrees) }); }
     if (selection?.kind === 'model') { const model = get().modelInstances.find((item) => item.id === selection.id); if (model) get().updateModel(model.id, { rotation: model.rotation + radians(degrees) }); }
+    if (selection?.kind === 'group') set((state) => {
+      const roomIds = new Set(selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
+      const modelIds = new Set(selection.items.filter((item) => item.kind === 'model').map((item) => item.id));
+      return {
+        rooms: state.rooms.map((room) => roomIds.has(room.id) ? normalizedRoom({ ...room, rotation: room.rotation + radians(degrees) }) : room),
+        modelInstances: state.modelInstances.map((model) => modelIds.has(model.id) ? normalizedModel({ ...model, rotation: model.rotation + radians(degrees) }) : model),
+      };
+    });
   },
   setCameraPreset: (cameraPreset) => set((state) => ({ cameraPreset, cameraRevision: state.cameraRevision + 1 })),
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),

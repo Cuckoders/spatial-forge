@@ -2,9 +2,15 @@ import { Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, RotateCw, Ru
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
+import type { ObjectSelection } from '../types';
 
 function NumericField({ label, value, min, max, step = 0.1, unit, onChange }: { label: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (value: number) => void }) {
   return <label className="field"><span>{label}</span><div><input max={max} min={min} onChange={(event) => onChange(event.target.valueAsNumber)} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
+}
+
+function pluralize(count: number, one: string, few: string, many: string) {
+  const lastTwo = count % 100; const last = count % 10;
+  return lastTwo >= 11 && lastTwo <= 14 ? many : last === 1 ? one : last >= 2 && last <= 4 ? few : many;
 }
 
 function EmptyInspector() {
@@ -18,7 +24,7 @@ function EmptyInspector() {
     <div className="inspector-empty"><Move3D size={28} /><h2>Выберите элемент</h2><p>Нажмите на пол, стену или объект в сцене, чтобы открыть его параметры.</p></div>
     {floor ? <section className="inspector-section"><div className="inspector-title"><span>Активный этаж</span><Layers3 size={16} /></div><label className="floor-name-field"><span>Название</span><input defaultValue={floor.name} key={`${floor.id}:${floor.name}`} maxLength={80} onBlur={(event) => updateFloor(floor.id, { name: event.target.value })} /></label><NumericField label="Отметка" max={60} min={-20} onChange={(elevation) => updateFloor(floor.id, { elevation })} unit="м" value={floor.elevation} /><button className="duplicate-floor" onClick={duplicateActiveFloor} type="button"><Copy size={15} /> Дублировать этаж со всем содержимым</button></section> : null}
     <section className="inspector-section"><div className="inspector-title"><span>Площадка</span><Ruler size={16} /></div><div className="field-row"><NumericField label="Ширина" max={200} min={4} onChange={(width) => updateSite({ width })} unit="м" value={site.width} /><NumericField label="Глубина" max={200} min={4} onChange={(depth) => updateSite({ depth })} unit="м" value={site.depth} /></div></section>
-    <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>⌘Z</kbd> отменить · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
+    <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Shift</kbd> группа · <kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>⌘Z</kbd> отменить · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
   </>;
 }
 
@@ -83,7 +89,29 @@ function ModelInspector({ id }: { id: string }) {
   </>;
 }
 
+function GroupInspector({ items }: { items: ObjectSelection[] }) {
+  const rooms = useEditorStore((state) => state.rooms);
+  const models = useEditorStore((state) => state.modelInstances);
+  const moveSelectedObjects = useEditorStore((state) => state.moveSelectedObjects);
+  const duplicateSelection = useEditorStore((state) => state.duplicateSelection);
+  const deleteSelection = useEditorStore((state) => state.deleteSelection);
+  const entries = items.flatMap((item) => {
+    const value = item.kind === 'room' ? rooms.find((room) => room.id === item.id) : models.find((model) => model.id === item.id);
+    return value ? [{ ...item, name: value.name, x: value.x, z: value.z }] : [];
+  });
+  const center = entries.reduce((result, item) => ({ x: result.x + item.x, z: result.z + item.z }), { x: 0, z: 0 });
+  if (entries.length) { center.x /= entries.length; center.z /= entries.length; }
+  const roomCount = entries.filter((item) => item.kind === 'room').length;
+  const modelCount = entries.length - roomCount;
+  return <>
+    <div className="inspector-head"><span className="selection-tag">Множественный выбор</span><h2>{entries.length} {pluralize(entries.length, 'элемент', 'элемента', 'элементов')}</h2></div>
+    <section className="inspector-section"><div className="inspector-title"><span>Центр группы</span><Move3D size={16} /></div><div className="field-row"><NumericField label="X" max={200} min={-200} onChange={(x) => moveSelectedObjects(x - center.x, 0)} unit="м" value={center.x} /><NumericField label="Z" max={200} min={-200} onChange={(z) => moveSelectedObjects(0, z - center.z)} unit="м" value={center.z} /></div><p className="vertex-note">Перемещайте всю группу стрелками в сцене или задайте координаты её центра.</p></section>
+    <section className="inspector-section"><div className="inspector-title"><span>Состав выделения</span><Layers3 size={16} /></div><div className="multi-selection-summary"><span><b>{roomCount}</b> {pluralize(roomCount, 'блок', 'блока', 'блоков')}</span><span><b>{modelCount}</b> {pluralize(modelCount, 'объект', 'объекта', 'объектов')}</span></div><div className="multi-selection-list">{entries.map((item) => <div key={`${item.kind}:${item.id}`}><span>{item.kind === 'room' ? 'Блок' : 'Объект'}</span><b>{item.name}</b></div>)}</div><p className="vertex-note multi-selection-hint"><kbd>Shift</kbd> + клик добавляет или убирает элементы из выделения.</p></section>
+    <div className="inspector-actions"><button onClick={duplicateSelection} type="button"><Copy size={16} /> Копировать всё</button><button className="danger" onClick={deleteSelection} type="button"><Trash2 size={16} /> Удалить всё</button></div>
+  </>;
+}
+
 export function Inspector() {
   const selection = useEditorStore((state) => state.selection);
-  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : <ModelInspector id={selection.id} />}</aside>;
+  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}</aside>;
 }

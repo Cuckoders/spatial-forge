@@ -143,11 +143,12 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
   const showDimensions = useEditorStore((state) => state.showDimensions);
   const select = useEditorStore((state) => state.select);
   const vertices = roomVertices(room);
-  const roomSelected = selection?.kind === 'room' && selection.id === room.id || selection?.kind === 'vertex' && selection.roomId === room.id;
+  const selectedInGroup = selection?.kind === 'group' && selection.items.some((item) => item.kind === 'room' && item.id === room.id);
+  const roomSelected = selection?.kind === 'room' && selection.id === room.id || selection?.kind === 'vertex' && selection.roomId === room.id || selectedInGroup;
   const selectedVertexIndex = selection?.kind === 'vertex' && selection.roomId === room.id ? selection.vertexIndex : undefined;
   const chooseRoom = (event: ThreeEvent<MouseEvent>) => {
     if (!active || event.delta > 4) return;
-    event.stopPropagation(); select({ kind: 'room', id: room.id });
+    event.stopPropagation(); select({ kind: 'room', id: room.id }, event.shiftKey);
   };
   return (
     <group position={[room.x, elevation, room.z]} rotation={[0, -room.rotation, 0]}>
@@ -163,7 +164,7 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
         if (!end) return null;
         return <Wall key={wallId(room.id, index)} active={active} end={end} room={room} selected={selection?.kind === 'wall' && selection.roomId === room.id && selection.wallIndex === index} start={start} wallIndex={index} />;
       })}
-      {active && roomSelected ? <PolygonVertexHandles onSelect={(vertexIndex) => select({ kind: 'vertex', roomId: room.id, vertexIndex })} room={room} selectedIndex={selectedVertexIndex} /> : null}
+      {active && roomSelected && !selectedInGroup ? <PolygonVertexHandles onSelect={(vertexIndex) => select({ kind: 'vertex', roomId: room.id, vertexIndex })} room={room} selectedIndex={selectedVertexIndex} /> : null}
       {active && showDimensions ? <RoomMeasurements room={room} vertices={vertices} /> : null}
     </group>
   );
