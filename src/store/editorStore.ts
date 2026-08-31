@@ -6,6 +6,7 @@ import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files'
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
+import { createProjectFromTemplate } from '../lib/projectTemplates';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
 import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
@@ -137,34 +138,7 @@ const objectSelectionKey = (selection: ObjectSelection) => `${selection.kind}:${
 const isObjectSelection = (selection: Selection): selection is ObjectSelection => selection.kind === 'room' || selection.kind === 'model';
 const collapseObjectSelection = (items: ObjectSelection[]): Selection | null => items.length === 0 ? null : items.length === 1 ? items[0]! : { kind: 'group', items };
 
-function demoProject(): ProjectDocument {
-  const floors: PlanFloor[] = [
-    { id: 'floor-1', name: '1 этаж', elevation: 0 },
-    { id: 'floor-2', name: '2 этаж', elevation: 3.2 },
-  ];
-  const rooms: PlanRoom[] = [
-    { id: 'living', floorId: 'floor-1', name: 'Гостиная', shape: 'rectangle', x: -2.5, z: -1.5, width: 5, depth: 4, rotation: 0, wallHeight: 2.8, wallThickness: 0.16, floorColor: '#CDBA9A' },
-    { id: 'kitchen', floorId: 'floor-1', name: 'Кухня', shape: 'rectangle', x: 2.25, z: -1.5, width: 4.5, depth: 4, rotation: 0, wallHeight: 2.8, wallThickness: 0.16, floorColor: '#B9C8BE' },
-    { id: 'bedroom', floorId: 'floor-1', name: 'Спальня', shape: 'rectangle', x: -2.75, z: 2.25, width: 4.5, depth: 3.5, rotation: 0, wallHeight: 2.8, wallThickness: 0.16, floorColor: '#C8C4D3' },
-    { id: 'terrace', floorId: 'floor-1', name: 'Терраса', shape: 'triangle', x: 2.25, z: 2.25, width: 4.5, depth: 3.5, rotation: 0, wallHeight: 1.1, wallThickness: 0.12, floorColor: '#B9A88A' },
-    { id: 'studio', floorId: 'floor-2', name: 'Студия', shape: 'rectangle', x: 0, z: 0, width: 7, depth: 5, rotation: 0, wallHeight: 2.7, wallThickness: 0.16, floorColor: '#D8CFBB' },
-  ];
-  return {
-    version: 1, name: 'Дом у сада', projectType: 'apartment', site: { width: 20, depth: 16 }, floors, rooms, walls: [], wallOpenings: [],
-    wallFinishes: {
-      [wallId('living', 0)]: { color: '#EEE8DC' }, [wallId('living', 1)]: { color: '#D7E2DA' },
-      [wallId('kitchen', 2)]: { color: '#C9D8CE' }, [wallId('bedroom', 0)]: { color: '#DAD4E4' },
-    },
-    openings: [
-      { id: 'demo-door', roomId: 'living', wallIndex: 2, kind: 'door', offset: 0.68, width: 0.9, height: 2.1, sillHeight: 0 },
-      { id: 'demo-window', roomId: 'kitchen', wallIndex: 0, kind: 'window', offset: 0.5, width: 1.6, height: 1.15, sillHeight: 0.9 },
-    ],
-    modelInstances: [
-      { id: 'demo-sofa', floorId: 'floor-1', assetId: 'builtin:sofa', name: 'Диван', x: -2.4, y: 0, z: -1.2, rotation: 0, scale: 1 },
-      { id: 'demo-table', floorId: 'floor-1', assetId: 'builtin:table', name: 'Стол', x: 2.2, y: 0, z: -1.3, rotation: 0, scale: 1 },
-    ],
-  };
-}
+function demoProject() { return createProjectFromTemplate('family-house')!; }
 
 const initialProject = typeof window === 'undefined' ? demoProject() : readAutosave() ?? demoProject();
 const initialClipboard = typeof window === 'undefined' ? undefined : readProjectClipboard();

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Box, Check, Compass, Grid3X3, House, Move3D, Rotate3D, RotateCw, Ruler, Scale3D, Scan, Undo2 } from 'lucide-react';
 
 import { FloorBar } from './components/FloorBar';
@@ -9,6 +9,8 @@ import { TopBar } from './components/TopBar';
 import { roomArea } from './lib/geometry';
 import { loadPersistedAssets } from './lib/assetStorage';
 import { useEditorStore } from './store/editorStore';
+
+const ProjectTemplateCatalog = lazy(() => import('./components/ProjectTemplateCatalog'));
 
 function ViewControls() {
   const preset = useEditorStore((state) => state.cameraPreset);
@@ -57,6 +59,7 @@ function WelcomeBadge() {
 }
 
 export default function App() {
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const message = useEditorStore((state) => state.message);
   const notify = useEditorStore((state) => state.notify);
   const deleteSelection = useEditorStore((state) => state.deleteSelection);
@@ -83,6 +86,10 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (catalogOpen) {
+        if (event.key === 'Escape') setCatalogOpen(false);
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
@@ -106,7 +113,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cancelPolygon, completePolygon, completeWallChain, deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, setTransformMode, toggleDimensions, undo]);
+  }, [cancelPolygon, catalogOpen, completePolygon, completeWallChain, deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, setTransformMode, toggleDimensions, undo]);
 
   useEffect(() => {
     if (!message) return;
@@ -115,7 +122,7 @@ export default function App() {
   }, [message, notify]);
 
   return <div className="app-shell">
-    <TopBar />
+    <TopBar onOpenTemplates={() => setCatalogOpen(true)} />
     <main className="workspace">
       <ToolPanel />
       <section className="viewport">
@@ -130,6 +137,7 @@ export default function App() {
       <Inspector />
     </main>
     {message ? <div className="toast" role="status"><Check size={17} /> {message}</div> : null}
+    {catalogOpen ? <Suspense fallback={<div className="template-catalog-backdrop"><div className="template-catalog-loading">Загружаем каталог…</div></div>}><ProjectTemplateCatalog onClose={() => setCatalogOpen(false)} /></Suspense> : null}
     <div className="mobile-warning"><RotateCw size={22} /><b>Для полноценного редактора разверните экран</b><span>Просмотр на телефоне работает, но проектировать удобнее на планшете или компьютере.</span></div>
   </div>;
 }
