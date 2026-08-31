@@ -237,6 +237,6 @@ export function PlannerCanvas() {
       <SceneContents selectionBoxRef={selectionBoxRef} />
     </Canvas>
     <div aria-hidden="true" className="selection-box" hidden ref={selectionBoxRef} />
-    <div className="canvas-hint">{cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка выделения · <kbd>Shift</kbd> добавить · <kbd>ПКМ</kbd> панорама</> : <><kbd>ЛКМ</kbd> вращение · <kbd>стрелки</kbd> перемещение · жёлтые линии умная привязка · <kbd>колесо</kbd> масштаб</>}</div>
+    <div className="canvas-hint">{cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</> : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
   </div>;
 }

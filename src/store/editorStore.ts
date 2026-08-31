@@ -4,7 +4,7 @@ import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, TextureAsset, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, TextureAsset, TransformMode, WallFinish, WallOpening } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -24,6 +24,7 @@ interface EditorState {
   draftPolygon: Point2[];
   selection: Selection | null;
   snapGuides: SnapGuide[];
+  transformMode: TransformMode;
   cameraPreset: CameraPreset;
   cameraRevision: number;
   captureRevision: number;
@@ -37,6 +38,7 @@ interface EditorState {
   select: (selection: Selection | null, additive?: boolean) => void;
   selectObjects: (selections: ObjectSelection[], additive?: boolean) => void;
   setSnapGuides: (guides: SnapGuide[]) => void;
+  setTransformMode: (mode: TransformMode) => void;
   addRoomAt: (shape: PlanRoom['shape'], x: number, z: number) => void;
   addPolygonPoint: (x: number, z: number) => void;
   completePolygon: () => void;
@@ -70,6 +72,8 @@ interface EditorState {
   duplicateModel: (id: string) => void;
   removeModel: (id: string) => void;
   moveSelectedObjects: (dx: number, dz: number) => void;
+  rotateSelectedObjects: (radians: number, center?: { x: number; z: number }) => void;
+  scaleSelectedObjects: (factor: number, center?: { x: number; z: number }) => void;
   duplicateSelection: () => void;
   deleteSelection: () => void;
   rotateSelection: (degrees: number) => void;
@@ -187,6 +191,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   draftPolygon: [],
   selection: null,
   snapGuides: [],
+  transformMode: 'translate',
   cameraPreset: 'perspective',
   cameraRevision: 0,
   captureRevision: 0,
@@ -215,6 +220,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], snapGuides: [] };
   }),
   setSnapGuides: (snapGuides) => set({ snapGuides }),
+  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], snapGuides: [] }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
@@ -464,6 +470,52 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       modelInstances: state.modelInstances.map((model) => modelIds.has(model.id) ? normalizedModel({ ...model, x: model.x + dx, z: model.z + dz }) : model),
     };
   }),
+  rotateSelectedObjects: (angle, center) => set((state) => {
+    if (!Number.isFinite(angle) || Math.abs(angle) < 0.000001) return state;
+    const selection = state.selection;
+    const items = selection?.kind === 'group' ? selection.items : selection && isObjectSelection(selection) ? [selection] : [];
+    if (!items.length) return state;
+    const roomIds = new Set(items.filter((item) => item.kind === 'room').map((item) => item.id));
+    const modelIds = new Set(items.filter((item) => item.kind === 'model').map((item) => item.id));
+    const selected = [...state.rooms.filter((room) => roomIds.has(room.id)), ...state.modelInstances.filter((model) => modelIds.has(model.id))];
+    if (!selected.length) return state;
+    const pivot = center ?? selected.reduce((result, item) => ({ x: result.x + item.x / selected.length, z: result.z + item.z / selected.length }), { x: 0, z: 0 });
+    const cosine = Math.cos(angle); const sine = Math.sin(angle);
+    const rotatePoint = (x: number, z: number) => ({ x: pivot.x + (x - pivot.x) * cosine - (z - pivot.z) * sine, z: pivot.z + (x - pivot.x) * sine + (z - pivot.z) * cosine });
+    return {
+      rooms: state.rooms.map((room) => roomIds.has(room.id) ? normalizedRoom({ ...room, ...rotatePoint(room.x, room.z), rotation: room.rotation + angle }) : room),
+      modelInstances: state.modelInstances.map((model) => modelIds.has(model.id) ? normalizedModel({ ...model, ...rotatePoint(model.x, model.z), rotation: model.rotation + angle }) : model),
+    };
+  }),
+  scaleSelectedObjects: (requestedFactor, center) => set((state) => {
+    if (!Number.isFinite(requestedFactor) || requestedFactor <= 0 || Math.abs(requestedFactor - 1) < 0.000001) return state;
+    const selection = state.selection;
+    const items = selection?.kind === 'group' ? selection.items : selection && isObjectSelection(selection) ? [selection] : [];
+    if (!items.length) return state;
+    const roomIds = new Set(items.filter((item) => item.kind === 'room').map((item) => item.id));
+    const modelIds = new Set(items.filter((item) => item.kind === 'model').map((item) => item.id));
+    const selectedRooms = state.rooms.filter((room) => roomIds.has(room.id));
+    const selectedModels = state.modelInstances.filter((model) => modelIds.has(model.id));
+    const selected = [...selectedRooms, ...selectedModels];
+    if (!selected.length) return state;
+    const minimumFactor = Math.max(0.01, ...selectedRooms.map((room) => 0.5 / Math.min(room.width, room.depth)), ...selectedModels.map((model) => 0.05 / model.scale));
+    const maximumFactor = Math.min(100, ...selectedRooms.map((room) => 50 / Math.max(room.width, room.depth)), ...selectedModels.map((model) => 20 / model.scale));
+    const factor = clamp(requestedFactor, minimumFactor, maximumFactor);
+    const pivot = center ?? selected.reduce((result, item) => ({ x: result.x + item.x / selected.length, z: result.z + item.z / selected.length }), { x: 0, z: 0 });
+    const rooms = state.rooms.map((room) => {
+      if (!roomIds.has(room.id)) return room;
+      return normalizedRoom({ ...room, x: pivot.x + (room.x - pivot.x) * factor, z: pivot.z + (room.z - pivot.z) * factor,
+        width: room.width * factor, depth: room.depth * factor,
+        ...(room.vertices ? { vertices: room.vertices.map((point) => [point[0] * factor, point[1] * factor] as [number, number]) } : {}) });
+    });
+    const openings = state.openings.flatMap((opening) => {
+      if (!roomIds.has(opening.roomId)) return [opening];
+      const room = rooms.find((candidate) => candidate.id === opening.roomId);
+      const fitted = room ? fitOpeningToRoom(opening, room) : undefined; return fitted ? [fitted] : [];
+    });
+    return { rooms, openings, modelInstances: state.modelInstances.map((model) => modelIds.has(model.id)
+      ? normalizedModel({ ...model, x: pivot.x + (model.x - pivot.x) * factor, z: pivot.z + (model.z - pivot.z) * factor, scale: model.scale * factor }) : model) };
+  }),
   duplicateSelection: () => {
     const selection = get().selection;
     if (selection?.kind === 'room') { get().duplicateRoom(selection.id); return; }
@@ -512,19 +564,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       };
     });
   },
-  rotateSelection: (degrees) => {
-    const selection = get().selection;
-    if (selection?.kind === 'room') { const room = get().rooms.find((item) => item.id === selection.id); if (room) get().updateRoom(room.id, { rotation: room.rotation + radians(degrees) }); }
-    if (selection?.kind === 'model') { const model = get().modelInstances.find((item) => item.id === selection.id); if (model) get().updateModel(model.id, { rotation: model.rotation + radians(degrees) }); }
-    if (selection?.kind === 'group') set((state) => {
-      const roomIds = new Set(selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
-      const modelIds = new Set(selection.items.filter((item) => item.kind === 'model').map((item) => item.id));
-      return {
-        rooms: state.rooms.map((room) => roomIds.has(room.id) ? normalizedRoom({ ...room, rotation: room.rotation + radians(degrees) }) : room),
-        modelInstances: state.modelInstances.map((model) => modelIds.has(model.id) ? normalizedModel({ ...model, rotation: model.rotation + radians(degrees) }) : model),
-      };
-    });
-  },
+  rotateSelection: (degrees) => get().rotateSelectedObjects(radians(degrees)),
   setCameraPreset: (cameraPreset) => set((state) => ({ cameraPreset, cameraRevision: state.cameraRevision + 1 })),
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,

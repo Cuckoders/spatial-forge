@@ -2,6 +2,7 @@ export type ProjectType = 'apartment' | 'plot';
 export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon';
 export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
+export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type BuiltInModelKind = 'sofa' | 'table' | 'bed' | 'tree' | 'stairs';
 
 export interface SnapGuide {

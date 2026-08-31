@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Box, Check, Compass, Grid3X3, House, RotateCw, Ruler, Scan, Undo2 } from 'lucide-react';
+import { Box, Check, Compass, Grid3X3, House, Move3D, Rotate3D, RotateCw, Ruler, Scale3D, Scan, Undo2 } from 'lucide-react';
 
 import { FloorBar } from './components/FloorBar';
 import { Inspector } from './components/Inspector';
@@ -26,6 +26,16 @@ function ViewControls() {
   </div>;
 }
 
+function TransformModeControls() {
+  const mode = useEditorStore((state) => state.transformMode);
+  const setTransformMode = useEditorStore((state) => state.setTransformMode);
+  return <div aria-label="Режим манипулятора" className="transform-mode-controls" role="toolbar">
+    <button aria-label="Перемещение · W" aria-pressed={mode === 'translate'} className={mode === 'translate' ? 'active' : ''} onClick={() => setTransformMode('translate')} title="Перемещение · W" type="button"><Move3D size={17} /><kbd>W</kbd></button>
+    <button aria-label="Вращение · E" aria-pressed={mode === 'rotate'} className={mode === 'rotate' ? 'active' : ''} onClick={() => setTransformMode('rotate')} title="Вращение · E" type="button"><Rotate3D size={17} /><kbd>E</kbd></button>
+    <button aria-label="Масштаб · S" aria-pressed={mode === 'scale'} className={mode === 'scale' ? 'active' : ''} onClick={() => setTransformMode('scale')} title="Масштаб · S" type="button"><Scale3D size={17} /><kbd>S</kbd></button>
+  </div>;
+}
+
 function SceneStats() {
   const rooms = useEditorStore((state) => state.rooms);
   const modelCount = useEditorStore((state) => state.modelInstances.length);
@@ -47,6 +57,7 @@ export default function App() {
   const setTool = useEditorStore((state) => state.setTool);
   const rotateSelection = useEditorStore((state) => state.rotateSelection);
   const setCameraPreset = useEditorStore((state) => state.setCameraPreset);
+  const setTransformMode = useEditorStore((state) => state.setTransformMode);
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
   const toggleDimensions = useEditorStore((state) => state.toggleDimensions);
@@ -71,6 +82,9 @@ export default function App() {
       else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelection(); }
       else if (event.key === 'Escape') { cancelPolygon(); select(null); }
       else if (event.key === 'Enter') completePolygon();
+      else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'w') setTransformMode('translate');
+      else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'e') setTransformMode('rotate');
+      else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 's') setTransformMode('scale');
       else if (event.key.toLowerCase() === 'v') setTool('select');
       else if (event.key.toLowerCase() === 'r') setTool('rectangle');
       else if (event.key.toLowerCase() === 't') setTool('triangle');
@@ -83,7 +97,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cancelPolygon, completePolygon, deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, toggleDimensions, undo]);
+  }, [cancelPolygon, completePolygon, deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, setTransformMode, toggleDimensions, undo]);
 
   useEffect(() => {
     if (!message) return;
@@ -99,6 +113,7 @@ export default function App() {
         <PlannerCanvas />
         <FloorBar />
         <ViewControls />
+        <TransformModeControls />
         <SceneStats />
         <WelcomeBadge />
         <div className="axis-widget"><span className="axis-y">Y</span><span className="axis-x">X</span><span className="axis-z">Z</span><Box size={20} /></div>

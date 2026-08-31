@@ -107,6 +107,10 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .view-controls button { width: 33px; height: 33px; border: 0; background: transparent; border-radius: 7px; display: grid; place-items: center; cursor: pointer; }
 .view-controls button:hover, .view-controls button.active { background: var(--ink); color: var(--acid); }
 .view-controls span { height: 1px; background: #d1d4cc; margin: 2px 4px; }
+.transform-mode-controls { position: absolute; top: 16px; left: 59px; display: flex; flex-direction: column; gap: 3px; padding: 4px; background: rgba(247,247,242,.87); backdrop-filter: blur(12px); border-radius: 10px; box-shadow: 0 8px 22px rgba(53,60,54,.1); }
+.transform-mode-controls button { width: 40px; height: 33px; padding: 0; border: 0; background: transparent; border-radius: 7px; display: flex; align-items: center; justify-content: center; gap: 3px; cursor: pointer; }
+.transform-mode-controls button:hover, .transform-mode-controls button.active { background: var(--ink); color: var(--acid); }
+.transform-mode-controls kbd { min-width: 12px; padding: 0; border: 0; background: transparent; box-shadow: none; color: inherit; font-size: 7px; }
 .scene-stats { position: absolute; left: 16px; bottom: 17px; display: flex; background: rgba(247,247,242,.87); backdrop-filter: blur(12px); border-radius: 9px; overflow: hidden; }
 .scene-stats span { padding: 7px 9px; border-right: 1px solid #d7d9d2; color: #747a75; font-size: 8px; }
 .scene-stats span:last-child { border: 0; }

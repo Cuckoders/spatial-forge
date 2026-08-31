@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, type ComponentRef } from 'react';
 import { TransformControls } from '@react-three/drei';
 import type { Group } from 'three';
 
@@ -7,9 +7,13 @@ import { useEditorStore } from '../../store/editorStore';
 
 export function SelectionTransform() {
   const target = useRef<Group>(null!);
+  const controls = useRef<ComponentRef<typeof TransformControls>>(null);
   const selectionRestorePending = useRef(false);
   const lastGroupPosition = useRef<readonly [number, number] | null>(null);
+  const lastGroupRotation = useRef(0);
+  const lastScale = useRef(1);
   const selection = useEditorStore((state) => state.selection);
+  const transformMode = useEditorStore((state) => state.transformMode);
   const rooms = useEditorStore((state) => state.rooms);
   const models = useEditorStore((state) => state.modelInstances);
   const room = selection?.kind === 'room' ? rooms.find((item) => item.id === selection.id) : undefined;
@@ -19,11 +23,14 @@ export function SelectionTransform() {
   const updateModel = useEditorStore((state) => state.updateModel);
   const updatePolygonVertex = useEditorStore((state) => state.updatePolygonVertex);
   const moveSelectedObjects = useEditorStore((state) => state.moveSelectedObjects);
+  const rotateSelectedObjects = useEditorStore((state) => state.rotateSelectedObjects);
+  const scaleSelectedObjects = useEditorStore((state) => state.scaleSelectedObjects);
   const setSnapGuides = useEditorStore((state) => state.setSnapGuides);
   const beginHistoryBatch = useEditorStore((state) => state.beginHistoryBatch);
   const endHistoryBatch = useEditorStore((state) => state.endHistoryBatch);
   const vertex = selection?.kind === 'vertex' ? vertexRoom?.vertices?.[selection.vertexIndex] : undefined;
   const item = room ?? model;
+  const effectiveMode = selection?.kind === 'vertex' ? 'translate' : transformMode;
   const groupItems = selection?.kind === 'group' ? selection.items.flatMap((selected) => {
     const value = selected.kind === 'room' ? rooms.find((candidate) => candidate.id === selected.id) : models.find((candidate) => candidate.id === selected.id);
     return value ? [value] : [];
@@ -66,10 +73,7 @@ export function SelectionTransform() {
     window.addEventListener('mouseup', restoreSelection, true);
   };
 
-  const updatePosition = () => {
-    const object = target.current;
-    if (!object) return;
-    preserveSelectionAfterDrag();
+  const updateTranslation = (object: Group) => {
     if (selection?.kind === 'group' && groupCenter && groupBounds) {
       const previous = lastGroupPosition.current ?? [groupCenter.x, groupCenter.z];
       const candidateDx = object.position.x - previous[0]; const candidateDz = object.position.z - previous[1];
@@ -102,28 +106,73 @@ export function SelectionTransform() {
     }
   };
 
+  const updateRotation = (object: Group) => {
+    const rotation = -object.rotation.y;
+    if (selection?.kind === 'group' && groupCenter) {
+      const delta = rotation - lastGroupRotation.current;
+      if (Math.abs(delta) > 0.000001) rotateSelectedObjects(delta, groupCenter);
+      lastGroupRotation.current = rotation;
+    } else if (room && Math.abs(rotation - room.rotation) > 0.000001) updateRoom(room.id, { rotation });
+    else if (model && Math.abs(rotation - model.rotation) > 0.000001) updateModel(model.id, { rotation });
+  };
+
+  const updateScale = (object: Group) => {
+    const axis = (controls.current as unknown as { axis: string | null } | null)?.axis ?? 'X';
+    const requestedScale = Math.max(0.05, Math.min(20, axis.includes('X') ? object.scale.x : axis.includes('Y') ? object.scale.y : object.scale.z));
+    const factor = requestedScale / lastScale.current;
+    object.scale.setScalar(requestedScale);
+    if (Math.abs(factor - 1) > 0.000001) scaleSelectedObjects(factor, groupCenter);
+    lastScale.current = requestedScale;
+  };
+
+  const updateTransform = () => {
+    const object = target.current;
+    if (!object) return;
+    preserveSelectionAfterDrag();
+    if (effectiveMode === 'translate') updateTranslation(object);
+    else if (effectiveMode === 'rotate') updateRotation(object);
+    else updateScale(object);
+  };
+
   const startTransform = () => {
-    if (selection?.kind === 'group' && target.current) lastGroupPosition.current = [target.current.position.x, target.current.position.z];
+    const object = target.current;
+    if (selection?.kind === 'group' && object) {
+      lastGroupPosition.current = [object.position.x, object.position.z];
+      lastGroupRotation.current = -object.rotation.y;
+    }
+    lastScale.current = object?.scale.x ?? 1;
     setSnapGuides([]);
     beginHistoryBatch();
   };
-  const finishTransform = () => { lastGroupPosition.current = null; setSnapGuides([]); endHistoryBatch(); };
-  const position = vertexWorldPosition() ?? (groupCenter ? [groupCenter.x, elevation + 0.14, groupCenter.z] as const : [item!.x, elevation + 0.14, item!.z] as const);
+  const finishTransform = () => {
+    if (target.current && selection?.kind === 'group' && effectiveMode === 'rotate') target.current.rotation.set(0, 0, 0);
+    if (target.current && effectiveMode === 'scale') target.current.scale.setScalar(1);
+    lastGroupPosition.current = null; lastGroupRotation.current = 0; lastScale.current = 1;
+    setSnapGuides([]); endHistoryBatch();
+  };
+  const position = vertexWorldPosition() ?? (groupCenter ? [groupCenter.x, elevation + 0.14, groupCenter.z] as const : [item!.x, elevation + (model?.y ?? 0) + 0.14, item!.z] as const);
+  const rotation = [0, -(item?.rotation ?? 0), 0] as const;
   const selectionKey = selection?.kind === 'vertex' ? `vertex:${selection.roomId}:${selection.vertexIndex}`
     : selection?.kind === 'group' ? `group:${selection.items.map((selected) => `${selected.kind}:${selected.id}`).join('|')}` : `${selection?.kind}:${item!.id}`;
 
   return <>
-    <group key={`target:${selectionKey}`} position={position} ref={target} />
+    {selection?.kind === 'group' ? <group key={`target:${selectionKey}`} position={position} ref={target} />
+      : <group key={`target:${selectionKey}`} position={position} ref={target} rotation={rotation} />}
     <TransformControls
-      key={`controls:${selectionKey}`}
-      mode="translate"
+      key={`controls:${selectionKey}:${effectiveMode}`}
+      mode={effectiveMode}
       object={target}
       onMouseDown={startTransform}
       onMouseUp={finishTransform}
-      onObjectChange={updatePosition}
-      showY={false}
+      onObjectChange={updateTransform}
+      ref={controls}
+      rotationSnap={Math.PI / 12}
+      scaleSnap={0.1}
+      showX={effectiveMode !== 'rotate'}
+      showY={effectiveMode === 'rotate'}
+      showZ={effectiveMode !== 'rotate'}
       size={selection?.kind === 'vertex' ? 0.55 : 0.7}
-      space="world"
+      space={effectiveMode === 'translate' ? 'world' : 'local'}
       translationSnap={0.5}
     />
   </>;
