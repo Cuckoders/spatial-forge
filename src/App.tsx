@@ -4,7 +4,6 @@ import { Box, Check, Compass, Grid3X3, House, Move3D, Rotate3D, RotateCw, Ruler,
 import { FloorBar } from './components/FloorBar';
 import { Inspector } from './components/Inspector';
 import { LayerPanel } from './components/LayerPanel';
-import { PlannerCanvas } from './components/scene/PlannerCanvas';
 import { ToolPanel } from './components/ToolPanel';
 import { TopBar } from './components/TopBar';
 import { roomArea } from './lib/geometry';
@@ -13,6 +12,7 @@ import { useEditorStore } from './store/editorStore';
 
 const ProjectTemplateCatalog = lazy(() => import('./components/ProjectTemplateCatalog'));
 const MaterialEstimate = lazy(() => import('./components/MaterialEstimate'));
+const PlannerCanvas = lazy(() => import('./components/scene/PlannerCanvas'));
 
 function ViewControls() {
   const preset = useEditorStore((state) => state.cameraPreset);
@@ -146,7 +146,7 @@ export default function App() {
     <main className="workspace">
       <ToolPanel />
       <section className="viewport">
-        <PlannerCanvas />
+        <Suspense fallback={<div aria-label="Загрузка 3D-сцены" className="scene-loading"><span /><b>Подготавливаем 3D-сцену</b><small>Геометрия и материалы загружаются отдельно</small></div>}><PlannerCanvas /></Suspense>
         <FloorBar />
         <ViewControls />
         <TransformModeControls />

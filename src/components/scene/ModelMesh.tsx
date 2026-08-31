@@ -1,4 +1,4 @@
-import { Component, Suspense, type ReactNode } from 'react';
+import { Component, memo, Suspense, type ReactNode } from 'react';
 import { Clone, Edges, useGLTF } from '@react-three/drei';
 import { type ThreeEvent } from '@react-three/fiber';
 
@@ -50,13 +50,12 @@ function UploadedModel({ url }: { url: string }) {
   return <Clone castShadow object={gltf.scene} receiveShadow />;
 }
 
-export function ModelMesh({ model, elevation, active }: { model: ModelInstance; elevation: number; active: boolean }) {
-  const selection = useEditorStore((state) => state.selection);
+export const ModelMesh = memo(function ModelMesh({ model, elevation, active }: { model: ModelInstance; elevation: number; active: boolean }) {
+  const selected = useEditorStore((state) => state.selection?.kind === 'model' && state.selection.id === model.id
+    || state.selection?.kind === 'group' && state.selection.items.some((item) => item.kind === 'model' && item.id === model.id));
   const assetUrl = useEditorStore((state) => state.modelAssets.find((asset) => asset.id === model.assetId)?.url);
   const select = useEditorStore((state) => state.select);
   const selectionToolActive = useEditorStore((state) => state.tool === 'select');
-  const selected = selection?.kind === 'model' && selection.id === model.id
-    || selection?.kind === 'group' && selection.items.some((item) => item.kind === 'model' && item.id === model.id);
   const choose = (event: ThreeEvent<MouseEvent>) => {
     if (!active || !selectionToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'model', id: model.id }, event.shiftKey);
@@ -68,4 +67,4 @@ export function ModelMesh({ model, elevation, active }: { model: ModelInstance; 
       : null}
     {selected ? <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.7, 0.78, 48]} /><meshBasicMaterial color="#E8FF57" /></mesh> : null}
   </group>;
-}
+});

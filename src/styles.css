@@ -119,6 +119,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .texture-asset-row button { height: 24px; border: 0; background: transparent; color: #9c6561; display: grid; place-items: center; cursor: pointer; }
 
 .viewport { min-width: 0; position: relative; overflow: hidden; background: #d7dbd1; }
+.scene-loading { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 5px; background: linear-gradient(145deg, #dfe2da, #cbd0c6); color: #454c46; }
+.scene-loading span { width: 28px; height: 28px; margin-bottom: 5px; border: 3px solid rgba(70,78,71,.2); border-top-color: #8d991c; border-radius: 50%; animation: scene-loading-spin .8s linear infinite; }
+.scene-loading b { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.scene-loading small { color: #737a74; font-size: 8px; }
+@keyframes scene-loading-spin { to { transform: rotate(360deg); } }
 .canvas-shell, .canvas-shell canvas { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
 .canvas-shell.tool-rectangle canvas, .canvas-shell.tool-triangle canvas, .canvas-shell.tool-polygon canvas, .canvas-shell.tool-utility canvas { cursor: crosshair; }
 .canvas-shell.tool-select.camera-top canvas { cursor: crosshair; }

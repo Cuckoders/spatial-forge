@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo } from 'react';
+import { memo, Suspense, useEffect, useMemo } from 'react';
 import { Edges, Html } from '@react-three/drei';
 import { type ThreeEvent, useLoader } from '@react-three/fiber';
 import { BufferGeometry, Color, Float32BufferAttribute, RepeatWrapping, SRGBColorSpace, TextureLoader } from 'three';
@@ -108,8 +108,8 @@ function OpeningDecoration({ opening, center, thickness, active }: { opening: St
   </group>;
 }
 
-export function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: PlanWall; joins: WallJoinOffsets; elevation: number; active: boolean }) {
-  const selection = useEditorStore((state) => state.selection);
+export const StandaloneWallMesh = memo(function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: PlanWall; joins: WallJoinOffsets; elevation: number; active: boolean }) {
+  const selected = useEditorStore((state) => state.selection?.kind === 'partition' && state.selection.id === wall.id);
   const allOpenings = useEditorStore((state) => state.wallOpenings);
   const showDimensions = useEditorStore((state) => state.showDimensions);
   const selectionToolActive = useEditorStore((state) => state.tool === 'select');
@@ -118,7 +118,6 @@ export function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: P
   const backTextureUrl = useEditorStore((state) => wall.backFinish?.textureId ? state.textures.find((texture) => texture.id === wall.backFinish?.textureId)?.url : undefined);
   const dx = wall.endX - wall.startX; const dz = wall.endZ - wall.startZ;
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
-  const selected = selection?.kind === 'partition' && selection.id === wall.id;
   const openings = useMemo(() => layoutOpenings(allOpenings.filter((item) => item.wallId === wall.id), length, wall.height),
     [allOpenings, length, wall.height, wall.id]);
   const choose = (event: ThreeEvent<MouseEvent>) => {
@@ -159,4 +158,4 @@ export function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: P
       <Html center distanceFactor={10} position={[0, wall.height * 0.58, -wall.thickness / 2 - 0.16]} style={{ pointerEvents: 'none' }} zIndexRange={[24, 0]}><div className="wall-side-label secondary">B</div></Html>
     </> : null}
   </group>;
-}
+});

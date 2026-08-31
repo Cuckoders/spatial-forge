@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo } from 'react';
+import { memo, Suspense, useEffect, useMemo } from 'react';
 import { Edges, Html } from '@react-three/drei';
 import { type ThreeEvent, useLoader } from '@react-three/fiber';
 import { Color, DoubleSide, RepeatWrapping, Shape, ShapeGeometry, SRGBColorSpace, TextureLoader } from 'three';
@@ -143,15 +143,20 @@ function PolygonVertexHandles({ room, selectedIndex, onSelect }: { room: PlanRoo
   </group>)}</group>;
 }
 
-export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
-  const selection = useEditorStore((state) => state.selection);
+export const RoomMesh = memo(function RoomMesh({ room, elevation, active }: RoomMeshProps) {
+  const selectedInGroup = useEditorStore((state) => state.selection?.kind === 'group'
+    && state.selection.items.some((item) => item.kind === 'room' && item.id === room.id));
+  const selectedDirectly = useEditorStore((state) => state.selection?.kind === 'room' && state.selection.id === room.id
+    || state.selection?.kind === 'vertex' && state.selection.roomId === room.id);
+  const selectedVertexIndex = useEditorStore((state) => state.selection?.kind === 'vertex' && state.selection.roomId === room.id
+    ? state.selection.vertexIndex : undefined);
+  const selectedWallIndex = useEditorStore((state) => state.selection?.kind === 'wall' && state.selection.roomId === room.id
+    ? state.selection.wallIndex : undefined);
   const showDimensions = useEditorStore((state) => state.showDimensions);
   const select = useEditorStore((state) => state.select);
   const selectionToolActive = useEditorStore((state) => state.tool === 'select');
   const vertices = roomVertices(room);
-  const selectedInGroup = selection?.kind === 'group' && selection.items.some((item) => item.kind === 'room' && item.id === room.id);
-  const roomSelected = selection?.kind === 'room' && selection.id === room.id || selection?.kind === 'vertex' && selection.roomId === room.id || selectedInGroup;
-  const selectedVertexIndex = selection?.kind === 'vertex' && selection.roomId === room.id ? selection.vertexIndex : undefined;
+  const roomSelected = selectedDirectly || selectedInGroup;
   const chooseRoom = (event: ThreeEvent<MouseEvent>) => {
     if (!active || !selectionToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'room', id: room.id }, event.shiftKey);
@@ -168,10 +173,10 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
       {vertices.map((start, index) => {
         const end = vertices[(index + 1) % vertices.length];
         if (!end) return null;
-        return <Wall key={wallId(room.id, index)} active={active} end={end} room={room} selected={selection?.kind === 'wall' && selection.roomId === room.id && selection.wallIndex === index} start={start} wallIndex={index} />;
+        return <Wall key={wallId(room.id, index)} active={active} end={end} room={room} selected={selectedWallIndex === index} start={start} wallIndex={index} />;
       })}
       {active && roomSelected && !selectedInGroup ? <PolygonVertexHandles onSelect={(vertexIndex) => select({ kind: 'vertex', roomId: room.id, vertexIndex })} room={room} selectedIndex={selectedVertexIndex} /> : null}
       {active && showDimensions ? <RoomMeasurements room={room} vertices={vertices} /> : null}
     </group>
   );
-}
+});

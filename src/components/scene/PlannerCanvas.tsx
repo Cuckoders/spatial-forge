@@ -199,6 +199,15 @@ const selectionRectangle = (bounds: Bounds2D, elevation: number, camera: Camera,
   };
 };
 
+function groupByFloor<T extends { floorId: string }>(items: T[]) {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const group = groups.get(item.floorId);
+    if (group) group.push(item); else groups.set(item.floorId, [item]);
+  }
+  return groups;
+}
+
 function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDivElement | null> }) {
   const { camera, gl } = useThree();
   const selectionDrag = useRef<SelectionDrag | null>(null);
@@ -244,6 +253,13 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const utilityAnalysis = useMemo(() => analyzeUtilityNetworks({ routes: utilities, devices: utilityDevices, risers: utilityRisers, junctions: utilityJunctions }),
     [utilities, utilityDevices, utilityJunctions, utilityRisers]);
   const resolvedUtilityDevices = useMemo(() => utilityDevices.map((device) => resolveUtilityDeviceMount(device, rooms, walls)), [rooms, utilityDevices, walls]);
+  const roomsByFloor = useMemo(() => groupByFloor(rooms), [rooms]);
+  const visibleRoomsByFloor = useMemo(() => groupByFloor(visibleRooms), [visibleRooms]);
+  const visibleWallsByFloor = useMemo(() => groupByFloor(visibleWalls), [visibleWalls]);
+  const visibleModelsByFloor = useMemo(() => groupByFloor(visibleModels), [visibleModels]);
+  const visibleUtilitiesByFloor = useMemo(() => groupByFloor(utilities.filter((route) => utilityVisibility[route.kind])), [utilities, utilityVisibility]);
+  const visibleDevicesByFloor = useMemo(() => groupByFloor(resolvedUtilityDevices.filter((device) => utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind])), [resolvedUtilityDevices, utilityVisibility]);
+  const visibleJunctionsByFloor = useMemo(() => groupByFloor(utilityJunctions.filter((junction) => utilityVisibility[junction.kind])), [utilityJunctions, utilityVisibility]);
 
   useEffect(() => {
     const updateSelectionBox = (event: PointerEvent) => {
@@ -340,17 +356,17 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
     {floors.map((floor) => {
       const active = floor.id === activeFloorId;
       if (!active && !showAllFloors) return null;
-      const floorRooms = rooms.filter((room) => room.floorId === floor.id);
-      const renderedRooms = visibleRooms.filter((room) => room.floorId === floor.id);
+      const floorRooms = roomsByFloor.get(floor.id) ?? [];
+      const renderedRooms = visibleRoomsByFloor.get(floor.id) ?? [];
       return <group key={floor.id}>
         <FloorStructures active={active} floor={floor} rooms={floorRooms} />
         {renderedRooms.map((room) => <RoomMesh key={room.id} active={active} elevation={floor.elevation} room={room} />)}
-        {visibleWalls.filter((wall) => wall.floorId === floor.id).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation}
+        {(visibleWallsByFloor.get(floor.id) ?? []).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation}
           joins={wallJoins.get(wall.id)!} wall={wall} />)}
-        {visibleModels.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
-        {utilities.filter((route) => route.floorId === floor.id && utilityVisibility[route.kind]).map((route) => <UtilityRouteMesh active={active} analysis={utilityAnalysis.get(route.id)} floorElevation={floor.elevation} key={route.id} route={route} />)}
-        {resolvedUtilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} route={device.routeId ? utilitiesById.get(device.routeId) : undefined} />)}
-        {utilityJunctions.filter((junction) => junction.floorId === floor.id && utilityVisibility[junction.kind]).map((junction) => <UtilityJunctionMesh active={active} floorElevation={floor.elevation} junction={junction} key={junction.id} routesById={utilitiesById} />)}
+        {(visibleModelsByFloor.get(floor.id) ?? []).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
+        {(visibleUtilitiesByFloor.get(floor.id) ?? []).map((route) => <UtilityRouteMesh active={active} analysis={utilityAnalysis.get(route.id)} floorElevation={floor.elevation} key={route.id} route={route} />)}
+        {(visibleDevicesByFloor.get(floor.id) ?? []).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} route={device.routeId ? utilitiesById.get(device.routeId) : undefined} />)}
+        {(visibleJunctionsByFloor.get(floor.id) ?? []).map((junction) => <UtilityJunctionMesh active={active} floorElevation={floor.elevation} junction={junction} key={junction.id} routesById={utilitiesById} />)}
       </group>;
     })}
     {utilityRisers.filter((riser) => utilityVisibility[riser.kind] && (showAllFloors || riser.fromFloorId === activeFloorId || riser.toFloorId === activeFloorId))
@@ -365,13 +381,13 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   </>;
 }
 
-export function PlannerCanvas() {
+export default function PlannerCanvas() {
   const tool = useEditorStore((state) => state.tool);
   const cameraPreset = useEditorStore((state) => state.cameraPreset);
   const select = useEditorStore((state) => state.select);
   const selectionBoxRef = useRef<HTMLDivElement>(null);
   return <div className={`canvas-shell tool-${tool} camera-${cameraPreset}`}>
-    <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }} onPointerMissed={(event) => { if (!event.shiftKey) select(null); }} shadows>
+    <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} frameloop="demand" gl={{ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: true }} onPointerMissed={(event) => { if (!event.shiftKey) select(null); }} shadows="basic">
       <SceneContents selectionBoxRef={selectionBoxRef} />
     </Canvas>
     <div aria-hidden="true" className="selection-box" hidden ref={selectionBoxRef} />
