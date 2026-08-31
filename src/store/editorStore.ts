@@ -35,6 +35,7 @@ interface EditorState {
   updateSite: (patch: Partial<SiteSettings>) => void;
   setTool: (tool: EditorTool) => void;
   select: (selection: Selection | null, additive?: boolean) => void;
+  selectObjects: (selections: ObjectSelection[], additive?: boolean) => void;
   setSnapGuides: (guides: SnapGuide[]) => void;
   addRoomAt: (shape: PlanRoom['shape'], x: number, z: number) => void;
   addPolygonPoint: (x: number, z: number) => void;
@@ -204,6 +205,14 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const exists = currentItems.some((item) => objectSelectionKey(item) === key);
     const items = exists ? currentItems.filter((item) => objectSelectionKey(item) !== key) : [...currentItems, selection];
     return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], snapGuides: [] };
+  }),
+  selectObjects: (selections, additive = false) => set((state) => {
+    const currentItems = additive
+      ? state.selection?.kind === 'group' ? state.selection.items : state.selection && isObjectSelection(state.selection) ? [state.selection] : []
+      : [];
+    const items = new Map(currentItems.map((item) => [objectSelectionKey(item), item]));
+    for (const selection of selections) items.set(objectSelectionKey(selection), selection);
+    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], snapGuides: [] };
   }),
   setSnapGuides: (snapGuides) => set({ snapGuides }),
   addRoomAt: (shape, x, z) => set((state) => {
