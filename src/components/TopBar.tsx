@@ -1,10 +1,10 @@
 import { useRef, type ChangeEvent } from 'react';
-import { Box, Building2, Camera, Download, FolderOpen, LayoutTemplate, Redo2, Rotate3D, Trees, Undo2 } from 'lucide-react';
+import { Box, Building2, Calculator, Camera, Download, FolderOpen, LayoutTemplate, Redo2, Rotate3D, Trees, Undo2 } from 'lucide-react';
 
 import { createProjectDocument, downloadProject, readProjectFile } from '../lib/files';
 import { useEditorStore } from '../store/editorStore';
 
-export function TopBar({ onOpenTemplates }: { onOpenTemplates: () => void }) {
+export function TopBar({ onOpenTemplates, onOpenEstimate }: { onOpenTemplates: () => void; onOpenEstimate: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const store = useEditorStore();
 
@@ -51,6 +51,7 @@ export function TopBar({ onOpenTemplates }: { onOpenTemplates: () => void }) {
           <button disabled={!store.canUndo} onClick={store.undo} title="Отменить · Ctrl/Cmd+Z" type="button"><Undo2 size={16} /></button>
           <button disabled={!store.canRedo} onClick={store.redo} title="Повторить · Ctrl/Cmd+Shift+Z" type="button"><Redo2 size={16} /></button>
         </div>
+        <button className="button ghost" onClick={onOpenEstimate} type="button"><Calculator size={16} /> Смета</button>
         <button className="button ghost" onClick={onOpenTemplates} type="button"><LayoutTemplate size={16} /> Шаблоны</button>
         <button className="button ghost" onClick={() => inputRef.current?.click()} type="button"><FolderOpen size={16} /> Открыть</button>
         <button className="button ghost" onClick={store.requestCapture} type="button"><Camera size={16} /> Снимок</button>
