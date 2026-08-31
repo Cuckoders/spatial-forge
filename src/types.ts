@@ -9,6 +9,10 @@ export type RoofRidgeDirection = 'x' | 'z';
 export type UtilityKind = 'electric' | 'water' | 'heating';
 export type UtilityDeviceKind = 'outlet' | 'switch' | 'panel' | 'waterPoint' | 'drain' | 'radiator';
 
+export type UtilityWallMount =
+  | { kind: 'room'; sourceId: string; wallIndex: number; offset: number; side: -1 | 1 }
+  | { kind: 'partition'; sourceId: string; offset: number; side: -1 | 1 };
+
 export interface SnapGuide {
   axis: 'x' | 'z';
   value: number;
@@ -156,6 +160,7 @@ export interface PlanUtilityDevice {
   rotation: number;
   rating: number;
   routeId?: string | undefined;
+  wallMount?: UtilityWallMount | undefined;
 }
 
 export type ObjectSelection =

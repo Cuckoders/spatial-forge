@@ -284,6 +284,13 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .connection-status.connected > span { background: #7b8a35; }
 .connection-auto { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--ink); border-radius: 7px; background: var(--ink); color: white; font-size: 8px; font-weight: 700; cursor: pointer; }
 .connection-auto:disabled { border-color: var(--line); background: #e7e8e2; color: #9da19b; cursor: default; }
+.wall-mount-status { min-height: 40px; display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: #f1f2ed; color: var(--muted); }
+.wall-mount-status > div { display: grid; gap: 2px; }
+.wall-mount-status b { color: var(--ink); font-size: 8px; }
+.wall-mount-status small { overflow: hidden; font-size: 7px; line-height: 1.3; text-overflow: ellipsis; }
+.wall-mount-status.mounted { border-color: #cbd7a3; background: #f6f8e9; color: #75823d; }
+.wall-mount-action { min-height: 32px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); font-size: 8px; font-weight: 700; cursor: pointer; }
+.wall-mount-action:disabled { background: #e7e8e2; color: #9da19b; cursor: default; }
 .utility-summary { min-height: 38px; display: grid; grid-template-columns: 9px minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: white; }
 .utility-summary > span { width: 9px; height: 9px; border-radius: 50%; }
 .utility-summary b { font-size: 8px; }

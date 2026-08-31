@@ -9,6 +9,7 @@ import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARAN
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
 import { createProjectFromTemplate } from '../lib/projectTemplates';
 import { nearestUtilityRoute, UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
+import { nearestUtilityWallMount, resolveUtilityDeviceMount } from '../lib/utilityWallMounts';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
 import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
@@ -82,6 +83,8 @@ interface EditorState {
   updateUtilityDevice: (id: string, patch: Partial<PlanUtilityDevice>) => void;
   connectUtilityDevice: (id: string, routeId?: string) => void;
   autoConnectUtilityDevice: (id: string) => void;
+  snapUtilityDeviceToWall: (id: string) => void;
+  detachUtilityDeviceFromWall: (id: string) => void;
   duplicateUtilityDevice: (id: string) => void;
   removeUtilityDevice: (id: string) => void;
   completePolygon: () => void;
@@ -258,6 +261,18 @@ function splitWallsAtTargets(walls: PlanWall[], wallOpenings: StandaloneWallOpen
   return { walls: nextWalls, wallOpenings: nextOpenings, splitCount };
 }
 
+function remapUtilityDevicesAfterWallSplit(devices: PlanUtilityDevice[], rooms: PlanRoom[], sourceWalls: PlanWall[], nextWalls: PlanWall[], targets: Array<WallSnapTarget | null>) {
+  const splitWallIds = new Set(targets.filter((target): target is WallSnapTarget => target?.kind === 'segment').map((target) => target.wallId));
+  if (!splitWallIds.size) return devices;
+  return devices.map((device) => {
+    if (device.wallMount?.kind !== 'partition' || !splitWallIds.has(device.wallMount.sourceId)) return device;
+    const resolved = resolveUtilityDeviceMount(device, rooms, sourceWalls);
+    const placement = nearestUtilityWallMount([], nextWalls, device.floorId, resolved.x, resolved.z, 0.5);
+    return placement ? { ...resolved, x: placement.x, z: placement.z, rotation: placement.rotation, wallMount: placement.mount }
+      : { ...resolved, wallMount: undefined };
+  });
+}
+
 function normalizedModel(model: ModelInstance): ModelInstance {
   return { ...model, name: cleanText(model.name, 80) || 'Объект', x: clamp(model.x, -200, 200), y: clamp(model.y, -10, 50),
     z: clamp(model.z, -200, 200), rotation: radians(normalizeDegrees(model.rotation * 180 / Math.PI)), scale: clamp(model.scale, 0.05, 20) };
@@ -425,14 +440,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       height: state.projectType === 'plot' ? 1.8 : 2.8, thickness: 0.16, color: '#E9E4DA' });
     const targets = [state.draftWallStartSnap, snapped.target];
     const split = splitWallsAtTargets(state.walls, state.wallOpenings, targets);
+    const utilityDevices = remapUtilityDevicesAfterWallSplit(state.utilityDevices, state.rooms, state.walls, split.walls, targets);
     const hasEndpointConnection = targets.some((target) => target?.kind === 'endpoint');
     const segmentCount = chain.segmentCount + 1;
     const connectionMessage = split.splitCount ? ` · Т-соединений: ${split.splitCount}` : hasEndpointConnection ? ' · соединение' : '';
-    if (closesChain) return { walls: [...split.walls, wall], wallOpenings: split.wallOpenings, selection: { kind: 'partition', id }, tool: 'select',
+    if (closesChain) return { walls: [...split.walls, wall], wallOpenings: split.wallOpenings, utilityDevices, selection: { kind: 'partition', id }, tool: 'select',
       draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null,
       draftWallPrecision: false,
       message: `Цепочка замкнута · стен: ${segmentCount}${connectionMessage}` };
-    return { walls: [...split.walls, wall], wallOpenings: split.wallOpenings, selection: null, tool: 'wall',
+    return { walls: [...split.walls, wall], wallOpenings: split.wallOpenings, utilityDevices, selection: null, tool: 'wall',
       draftWallStart: point, draftWallStartSnap: { wallId: id, kind: 'endpoint', endpoint: 'end', x: point[0], z: point[1] },
       draftWallEnd: point, draftWallSnap: null, draftWallChain: { start: chain.start, segmentCount },
       draftWallPrecision: false,
@@ -514,24 +530,30 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     if (state.tool !== 'utility-device') return state;
     const defaults = UTILITY_DEVICE_KINDS[state.utilityDeviceKind];
     const count = state.utilityDevices.filter((device) => device.floorId === state.activeFloorId && device.kind === state.utilityDeviceKind).length + 1;
-    const pointX = snapToGrid(x); const pointZ = snapToGrid(z);
+    let pointX = snapToGrid(x); let pointZ = snapToGrid(z); let rotation = 0;
+    const wallPlacement = state.utilityDeviceKind === 'drain' ? undefined
+      : nearestUtilityWallMount(state.rooms, state.walls, state.activeFloorId, pointX, pointZ);
+    if (wallPlacement) { pointX = wallPlacement.x; pointZ = wallPlacement.z; rotation = wallPlacement.rotation; }
     const route = nearestUtilityRoute(state.utilities, state.utilityDeviceKind, state.activeFloorId, pointX, pointZ);
     const device = normalizedUtilityDevice({ id: newId('utility-device'), floorId: state.activeFloorId,
       name: `${defaults.label} ${count}`, kind: state.utilityDeviceKind, x: pointX, z: pointZ,
-      elevation: defaults.defaultElevation, rotation: 0, rating: defaults.defaultRating, ...(route ? { routeId: route.id } : {}) });
+      elevation: defaults.defaultElevation, rotation, rating: defaults.defaultRating, ...(route ? { routeId: route.id } : {}),
+      ...(wallPlacement ? { wallMount: wallPlacement.mount } : {}) });
     return { utilityDevices: [...state.utilityDevices, device], utilityVisibility: { ...state.utilityVisibility, [defaults.utilityKind]: true },
-      selection: null, message: route ? `«${device.name}» подключена к «${route.name}» · можно добавить ещё` : `«${device.name}» размещена без подключения · рядом нет совместимой трассы` };
+      selection: null, message: `${wallPlacement ? 'Закреплено на стене' : 'Размещено на сетке'} · ${route ? `подключено к «${route.name}»` : 'без подключения'}` };
   }),
   updateUtilityDevice: (id, patch) => set((state) => {
     const source = state.utilityDevices.find((device) => device.id === id); if (!source) return state;
     const kind = patch.kind && Object.hasOwn(UTILITY_DEVICE_KINDS, patch.kind) ? patch.kind : source.kind;
+    const resolvedSource = resolveUtilityDeviceMount(source, state.rooms, state.walls);
+    const wallMount = kind === 'drain' ? undefined : source.wallMount;
     let routeId = source.routeId;
     const linkedRoute = routeId ? state.utilities.find((route) => route.id === routeId) : undefined;
     if (routeId && linkedRoute?.kind !== UTILITY_DEVICE_KINDS[kind].utilityKind) routeId = undefined;
     if (!routeId && (kind !== source.kind || patch.x !== undefined || patch.z !== undefined)) {
-      routeId = nearestUtilityRoute(state.utilities, kind, source.floorId, patch.x ?? source.x, patch.z ?? source.z)?.id;
+      routeId = nearestUtilityRoute(state.utilities, kind, source.floorId, patch.x ?? resolvedSource.x, patch.z ?? resolvedSource.z)?.id;
     }
-    const device = normalizedUtilityDevice({ ...source, ...patch, id: source.id, floorId: source.floorId, kind, routeId });
+    const device = normalizedUtilityDevice({ ...resolvedSource, ...patch, id: source.id, floorId: source.floorId, kind, routeId, wallMount });
     const utilityKind = UTILITY_DEVICE_KINDS[kind].utilityKind;
     return { utilityDevices: state.utilityDevices.map((item) => item.id === id ? device : item),
       utilityVisibility: { ...state.utilityVisibility, [utilityKind]: true } };
@@ -545,14 +567,30 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   }),
   autoConnectUtilityDevice: (id) => set((state) => {
     const device = state.utilityDevices.find((item) => item.id === id); if (!device) return state;
-    const route = nearestUtilityRoute(state.utilities, device.kind, device.floorId, device.x, device.z, 200);
+    const resolved = resolveUtilityDeviceMount(device, state.rooms, state.walls);
+    const route = nearestUtilityRoute(state.utilities, device.kind, device.floorId, resolved.x, resolved.z, 200);
     if (!route) return { message: 'На этаже нет совместимой трассы' };
     return { utilityDevices: state.utilityDevices.map((item) => item.id === id ? { ...item, routeId: route.id } : item),
       utilityVisibility: { ...state.utilityVisibility, [route.kind]: true }, message: `Подключено к ближайшей трассе «${route.name}»` };
   }),
+  snapUtilityDeviceToWall: (id) => set((state) => {
+    const source = state.utilityDevices.find((item) => item.id === id); if (!source || source.kind === 'drain') return { message: 'Слив размещается на полу' };
+    const resolved = resolveUtilityDeviceMount(source, state.rooms, state.walls);
+    const placement = nearestUtilityWallMount(state.rooms, state.walls, source.floorId, resolved.x, resolved.z, 2);
+    if (!placement) return { message: 'Рядом нет подходящей стены' };
+    return { utilityDevices: state.utilityDevices.map((item) => item.id === id ? normalizedUtilityDevice({ ...item, x: placement.x, z: placement.z, rotation: placement.rotation, wallMount: placement.mount }) : item),
+      message: 'Инженерная точка закреплена на ближайшей стене' };
+  }),
+  detachUtilityDeviceFromWall: (id) => set((state) => {
+    const source = state.utilityDevices.find((item) => item.id === id); if (!source) return state;
+    const resolved = resolveUtilityDeviceMount(source, state.rooms, state.walls);
+    return { utilityDevices: state.utilityDevices.map((item) => item.id === id ? { ...resolved, wallMount: undefined } : item),
+      message: 'Привязка к стене снята' };
+  }),
   duplicateUtilityDevice: (id) => set((state) => {
     const source = state.utilityDevices.find((device) => device.id === id); if (!source) return state;
-    const copy = { ...source, id: newId('utility-device'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 0.5, z: source.z + 0.5 };
+    const copy = { ...source, id: newId('utility-device'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 0.5, z: source.z + 0.5,
+      ...(source.wallMount ? { wallMount: { ...source.wallMount, offset: Math.min(0.97, source.wallMount.offset + 0.1) } } : {}) };
     return { utilityDevices: [...state.utilityDevices, copy], selection: { kind: 'utility-device', id: copy.id }, message: 'Инженерная точка скопирована' };
   }),
   removeUtilityDevice: (id) => set((state) => ({ utilityDevices: state.utilityDevices.filter((device) => device.id !== id),
@@ -618,7 +656,14 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       ...fitRoomOpeningGroups(remappedOpenings.filter((opening) => opening.roomId === id), updatedRoom)];
     const selection = state.selection?.kind === 'vertex' && state.selection.roomId === id && state.selection.vertexIndex > afterIndex
       ? { ...state.selection, vertexIndex: state.selection.vertexIndex + 1 } as Selection : state.selection;
-    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), selection,
+    const utilityDevices = state.utilityDevices.map((device) => {
+      const mount = device.wallMount; if (mount?.kind !== 'room' || mount.sourceId !== id) return device;
+      if (mount.wallIndex < afterIndex) return device;
+      if (mount.wallIndex > afterIndex) return { ...device, wallMount: { ...mount, wallIndex: mount.wallIndex + 1 } };
+      return mount.offset <= 0.5 ? { ...device, wallMount: { ...mount, offset: mount.offset * 2 } }
+        : { ...device, wallMount: { ...mount, wallIndex: mount.wallIndex + 1, offset: (mount.offset - 0.5) * 2 } };
+    });
+    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), utilityDevices, selection,
       wallFinishes: remapRoomFinishes(state.wallFinishes, id, sourceWallIndices), openings, message: 'Новая вершина добавлена в середину стены' };
   }),
   removePolygonVertex: (id, index) => set((state) => {
@@ -645,7 +690,13 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       ? state.selection.vertexIndex === index ? { kind: 'room', id } as Selection
         : state.selection.vertexIndex > index ? { ...state.selection, vertexIndex: state.selection.vertexIndex - 1 } : state.selection
       : state.selection;
-    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), selection,
+    const utilityDevices = state.utilityDevices.map((device) => {
+      const mount = device.wallMount; if (mount?.kind !== 'room' || mount.sourceId !== id) return device;
+      if (mount.wallIndex === previousIndex || mount.wallIndex === index) return { ...resolveUtilityDeviceMount(device, state.rooms, state.walls), wallMount: undefined };
+      const wallIndex = sourceWallIndices.indexOf(mount.wallIndex);
+      return wallIndex >= 0 ? { ...device, wallMount: { ...mount, wallIndex } } : { ...resolveUtilityDeviceMount(device, state.rooms, state.walls), wallMount: undefined };
+    });
+    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), utilityDevices, selection,
       wallFinishes: remapRoomFinishes(state.wallFinishes, id, sourceWallIndices), openings,
       message: removedOpening ? 'Вершина и проёмы соседних стен удалены' : 'Вершина удалена' };
   }),
@@ -685,11 +736,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     if (!writeProjectClipboard(clipboard)) { set({ message: 'Не удалось сохранить комнату в локальный буфер' }); return; }
     set({ projectClipboard: summarizeProjectClipboard(clipboard), message: `«${room.name}» скопирована для переноса между проектами` });
   },
-  removeRoom: (id) => set((state) => ({ rooms: state.rooms.filter((room) => room.id !== id),
-    wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => !key.startsWith(`${id}:wall:`))),
-    openings: state.openings.filter((opening) => opening.roomId !== id),
-    selection: state.selection?.kind === 'room' && state.selection.id === id || state.selection?.kind === 'vertex' && state.selection.roomId === id
-      || state.selection?.kind === 'wall' && state.selection.roomId === id ? null : state.selection })),
+  removeRoom: (id) => set((state) => {
+    const utilityDevices = state.utilityDevices.map((device) => device.wallMount?.kind === 'room' && device.wallMount.sourceId === id
+      ? { ...resolveUtilityDeviceMount(device, state.rooms, state.walls), wallMount: undefined } : device);
+    return { rooms: state.rooms.filter((room) => room.id !== id), utilityDevices,
+      wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => !key.startsWith(`${id}:wall:`))),
+      openings: state.openings.filter((opening) => opening.roomId !== id),
+      selection: state.selection?.kind === 'room' && state.selection.id === id || state.selection?.kind === 'vertex' && state.selection.roomId === id
+        || state.selection?.kind === 'wall' && state.selection.roomId === id ? null : state.selection };
+  }),
   updateWall: (id, patch) => set((state) => {
     const source = state.walls.find((wall) => wall.id === id); if (!source) return state;
     const wall = normalizedWall({ ...source, ...patch, id: source.id, floorId: source.floorId });
@@ -749,9 +804,13 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     return { walls: [...state.walls, copy], wallOpenings: [...state.wallOpenings, ...openings],
       selection: { kind: 'partition', id: copy.id }, message: 'Стена скопирована' };
   }),
-  removeWall: (id) => set((state) => ({ walls: state.walls.filter((wall) => wall.id !== id),
-    wallOpenings: state.wallOpenings.filter((opening) => opening.wallId !== id),
-    selection: state.selection?.kind === 'partition' && state.selection.id === id ? null : state.selection, message: 'Стена удалена' })),
+  removeWall: (id) => set((state) => {
+    const utilityDevices = state.utilityDevices.map((device) => device.wallMount?.kind === 'partition' && device.wallMount.sourceId === id
+      ? { ...resolveUtilityDeviceMount(device, state.rooms, state.walls), wallMount: undefined } : device);
+    return { walls: state.walls.filter((wall) => wall.id !== id), utilityDevices,
+      wallOpenings: state.wallOpenings.filter((opening) => opening.wallId !== id),
+      selection: state.selection?.kind === 'partition' && state.selection.id === id ? null : state.selection, message: 'Стена удалена' };
+  }),
   addStandaloneWallOpening: (wallId, kind) => set((state) => {
     const wall = state.walls.find((item) => item.id === wallId); if (!wall) return state;
     const existing = state.wallOpenings.filter((opening) => opening.wallId === wallId);
@@ -865,8 +924,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const utilityIds = new Map(sourceUtilities.map((route) => [route.id, newId('utility')]));
     const utilities = sourceUtilities.map((route) => ({ ...route, id: utilityIds.get(route.id)!, floorId: floor.id }));
     const utilityDevices = state.utilityDevices.filter((device) => device.floorId === sourceFloor.id)
-      .map((device) => ({ ...device, id: newId('utility-device'), floorId: floor.id,
-        ...(device.routeId && utilityIds.has(device.routeId) ? { routeId: utilityIds.get(device.routeId) } : { routeId: undefined }) }));
+      .map((device) => {
+        const sourceId = device.wallMount?.kind === 'room' ? roomIds.get(device.wallMount.sourceId) : device.wallMount ? wallIds.get(device.wallMount.sourceId) : undefined;
+        return { ...device, id: newId('utility-device'), floorId: floor.id,
+          ...(device.routeId && utilityIds.has(device.routeId) ? { routeId: utilityIds.get(device.routeId) } : { routeId: undefined }),
+          ...(device.wallMount && sourceId ? { wallMount: { ...device.wallMount, sourceId } } : { wallMount: undefined }) };
+      });
     return { floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], openings: [...state.openings, ...openings],
       walls: [...state.walls, ...walls], wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes,
       modelInstances: [...state.modelInstances, ...models], utilities: [...state.utilities, ...utilities], utilityDevices: [...state.utilityDevices, ...utilityDevices], activeFloorId: floor.id, selection: null,
@@ -939,8 +1002,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const modelInstances = clipboard.project.modelInstances.map((model) => ({ ...model, id: newId('object'), floorId: floor.id }));
     const utilityIds = new Map(clipboard.project.utilities.map((route) => [route.id, newId('utility')]));
     const utilities = clipboard.project.utilities.map((route) => ({ ...route, id: utilityIds.get(route.id)!, floorId: floor.id }));
-    const utilityDevices = clipboard.project.utilityDevices.map((device) => ({ ...device, id: newId('utility-device'), floorId: floor.id,
-      ...(device.routeId && utilityIds.has(device.routeId) ? { routeId: utilityIds.get(device.routeId) } : { routeId: undefined }) }));
+    const utilityDevices = clipboard.project.utilityDevices.map((device) => {
+      const sourceId = device.wallMount?.kind === 'room' ? roomIds.get(device.wallMount.sourceId) : device.wallMount ? wallIds.get(device.wallMount.sourceId) : undefined;
+      return { ...device, id: newId('utility-device'), floorId: floor.id,
+        ...(device.routeId && utilityIds.has(device.routeId) ? { routeId: utilityIds.get(device.routeId) } : { routeId: undefined }),
+        ...(device.wallMount && sourceId ? { wallMount: { ...device.wallMount, sourceId } } : { wallMount: undefined }) };
+    });
     set({ floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], walls: [...state.walls, ...walls],
       wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes, openings: [...state.openings, ...openings],
       modelInstances: [...state.modelInstances, ...modelInstances], utilities: [...state.utilities, ...utilities], utilityDevices: [...state.utilityDevices, ...utilityDevices], activeFloorId: floor.id, showAllFloors: false, selection: null,

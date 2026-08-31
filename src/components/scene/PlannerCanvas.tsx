@@ -6,6 +6,7 @@ import { MOUSE, TOUCH, Vector3, type Camera } from 'three';
 import { downloadBlob, safeDownloadName } from '../../lib/files';
 import { boundsForModel, boundsForRoom, type Bounds2D } from '../../lib/snapping';
 import { UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../../lib/utilities';
+import { resolveUtilityDeviceMount } from '../../lib/utilityWallMounts';
 import { wallJoinOffsetsMap } from '../../lib/wallJoins';
 import { useEditorStore } from '../../store/editorStore';
 import type { ObjectSelection } from '../../types';
@@ -223,6 +224,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const activeFloorElevation = floors.find((floor) => floor.id === activeFloorId)?.elevation ?? 0;
   const wallJoins = useMemo(() => wallJoinOffsetsMap(walls), [walls]);
   const utilitiesById = useMemo(() => new Map(utilities.map((route) => [route.id, route])), [utilities]);
+  const resolvedUtilityDevices = useMemo(() => utilityDevices.map((device) => resolveUtilityDeviceMount(device, rooms, walls)), [rooms, utilityDevices, walls]);
 
   useEffect(() => {
     const updateSelectionBox = (event: PointerEvent) => {
@@ -325,7 +327,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
           joins={wallJoins.get(wall.id)!} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
         {utilities.filter((route) => route.floorId === floor.id && utilityVisibility[route.kind]).map((route) => <UtilityRouteMesh active={active} floorElevation={floor.elevation} key={route.id} route={route} />)}
-        {utilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} route={device.routeId ? utilitiesById.get(device.routeId) : undefined} />)}
+        {resolvedUtilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} route={device.routeId ? utilitiesById.get(device.routeId) : undefined} />)}
       </group>;
     })}
     <DraftPolygon />

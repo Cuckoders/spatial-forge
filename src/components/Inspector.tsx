@@ -3,13 +3,14 @@ import { BrickWall, Cable, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Drople
 
 import { roomArea, wallId } from '../lib/geometry';
 import { UTILITY_DEVICE_KINDS, UTILITY_KINDS, utilityLength, utilityRouteProjection } from '../lib/utilities';
+import { resolveUtilityDeviceMount, utilityWallMountLabel } from '../lib/utilityWallMounts';
 import { useEditorStore } from '../store/editorStore';
 import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening } from '../types';
 
 const wallPalette = ['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'];
 
-function NumericField({ label, ariaLabel, value, min, max, step = 0.1, unit, onChange }: { label: string; ariaLabel?: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (value: number) => void }) {
-  return <label className="field"><span>{label}</span><div><input aria-label={ariaLabel} max={max} min={min} onChange={(event) => {
+function NumericField({ label, ariaLabel, value, min, max, step = 0.1, unit, disabled = false, onChange }: { label: string; ariaLabel?: string; value: number; min: number; max: number; step?: number; unit?: string; disabled?: boolean; onChange: (value: number) => void }) {
+  return <label className="field"><span>{label}</span><div><input aria-label={ariaLabel} disabled={disabled} max={max} min={min} onChange={(event) => {
     const nextValue = event.target.valueAsNumber; if (Number.isFinite(nextValue)) onChange(nextValue);
   }} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
 }
@@ -200,24 +201,32 @@ function UtilityInspector({ id }: { id: string }) {
 function UtilityDeviceInspector({ id }: { id: string }) {
   const device = useEditorStore((state) => state.utilityDevices.find((item) => item.id === id));
   const routes = useEditorStore((state) => state.utilities);
+  const rooms = useEditorStore((state) => state.rooms);
+  const walls = useEditorStore((state) => state.walls);
   const updateUtilityDevice = useEditorStore((state) => state.updateUtilityDevice);
   const connectUtilityDevice = useEditorStore((state) => state.connectUtilityDevice);
   const autoConnectUtilityDevice = useEditorStore((state) => state.autoConnectUtilityDevice);
+  const snapUtilityDeviceToWall = useEditorStore((state) => state.snapUtilityDeviceToWall);
+  const detachUtilityDeviceFromWall = useEditorStore((state) => state.detachUtilityDeviceFromWall);
   const duplicateUtilityDevice = useEditorStore((state) => state.duplicateUtilityDevice);
   const removeUtilityDevice = useEditorStore((state) => state.removeUtilityDevice);
   if (!device) return <EmptyInspector />;
+  const resolvedDevice = resolveUtilityDeviceMount(device, rooms, walls);
   const style = UTILITY_DEVICE_KINDS[device.kind];
   const compatibleRoutes = routes.filter((route) => route.floorId === device.floorId && route.kind === style.utilityKind);
   const connectedRoute = device.routeId ? compatibleRoutes.find((route) => route.id === device.routeId) : undefined;
-  const connectionDistance = connectedRoute ? utilityRouteProjection(connectedRoute, device.x, device.z).distance : undefined;
+  const connectionDistance = connectedRoute ? utilityRouteProjection(connectedRoute, resolvedDevice.x, resolvedDevice.z).distance : undefined;
   return <>
     <div className="inspector-head"><span className="selection-tag">Инженерная точка</span><input aria-label="Название инженерной точки" maxLength={80} onChange={(event) => updateUtilityDevice(device.id, { name: event.target.value })} value={device.name} /></div>
     <section className="inspector-section"><div className="inspector-title"><span>Тип точки</span><Cable size={16} /></div>
       <div aria-label="Тип инженерной точки" className="utility-device-type-grid" role="group">{(Object.keys(UTILITY_DEVICE_KINDS) as UtilityDeviceKind[]).map((kind) => <button aria-pressed={device.kind === kind} className={device.kind === kind ? 'active' : ''} key={kind} onClick={() => updateUtilityDevice(device.id, { kind, rating: UTILITY_DEVICE_KINDS[kind].defaultRating })} type="button"><span style={{ background: UTILITY_DEVICE_KINDS[kind].color }} />{UTILITY_DEVICE_KINDS[kind].shortLabel}</button>)}</div>
     </section>
     <section className="inspector-section"><div className="inspector-title"><span>Положение</span><Move3D size={16} /></div>
-      <div className="field-row"><NumericField label="X" max={200} min={-200} onChange={(x) => updateUtilityDevice(device.id, { x })} unit="м" value={device.x} /><NumericField label="Z" max={200} min={-200} onChange={(z) => updateUtilityDevice(device.id, { z })} unit="м" value={device.z} /></div>
-      <div className="field-row"><NumericField ariaLabel="Высота инженерной точки" label="Высота" max={12} min={0.01} onChange={(elevation) => updateUtilityDevice(device.id, { elevation })} step={0.01} unit="м" value={device.elevation} /><NumericField label="Поворот" max={360} min={-360} onChange={(rotation) => updateUtilityDevice(device.id, { rotation: rotation * Math.PI / 180 })} step={1} unit="°" value={device.rotation * 180 / Math.PI} /></div>
+      <div className="field-row"><NumericField disabled={Boolean(device.wallMount)} label="X" max={200} min={-200} onChange={(x) => updateUtilityDevice(device.id, { x })} unit="м" value={resolvedDevice.x} /><NumericField disabled={Boolean(device.wallMount)} label="Z" max={200} min={-200} onChange={(z) => updateUtilityDevice(device.id, { z })} unit="м" value={resolvedDevice.z} /></div>
+      <div className="field-row"><NumericField ariaLabel="Высота инженерной точки" label="Высота" max={12} min={0.01} onChange={(elevation) => updateUtilityDevice(device.id, { elevation })} step={0.01} unit="м" value={device.elevation} /><NumericField disabled={Boolean(device.wallMount)} label="Поворот" max={360} min={-360} onChange={(rotation) => updateUtilityDevice(device.id, { rotation: rotation * Math.PI / 180 })} step={1} unit="°" value={resolvedDevice.rotation * 180 / Math.PI} /></div>
+      <div className={`wall-mount-status${device.wallMount ? ' mounted' : ''}`}><Link2 size={15} /><div><b>{device.wallMount ? 'Закреплено на стене' : 'Свободное размещение'}</b><small>{device.wallMount ? utilityWallMountLabel(device.wallMount, rooms, walls) : device.kind === 'drain' ? 'Слив устанавливается на полу' : 'Можно притянуть к стене в радиусе 2 м'}</small></div></div>
+      {device.wallMount ? <button className="wall-mount-action" onClick={() => detachUtilityDeviceFromWall(device.id)} type="button">Снять со стены</button>
+        : <button className="wall-mount-action" disabled={device.kind === 'drain'} onClick={() => snapUtilityDeviceToWall(device.id)} type="button">Притянуть к ближайшей стене</button>}
     </section>
     <section className="inspector-section"><div className="inspector-title"><span>Подключение</span><Link2 size={16} /></div>
       <label className="connection-field"><span>Трасса</span><select aria-label="Подключённая трасса" onChange={(event) => connectUtilityDevice(device.id, event.target.value || undefined)} value={device.routeId ?? ''}><option value="">Без подключения</option>{compatibleRoutes.map((route) => <option key={route.id} value={route.id}>{route.name}</option>)}</select></label>
