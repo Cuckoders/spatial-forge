@@ -1,6 +1,6 @@
 export type ProjectType = 'apartment' | 'plot';
-export type EditorTool = 'select' | 'rectangle' | 'triangle';
-export type RoomShape = 'rectangle' | 'triangle';
+export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon';
+export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
 export type BuiltInModelKind = 'sofa' | 'table' | 'bed' | 'tree' | 'stairs';
 
@@ -28,6 +28,7 @@ export interface PlanRoom {
   wallHeight: number;
   wallThickness: number;
   floorColor: string;
+  vertices?: Array<[number, number]>;
 }
 
 export interface WallFinish {

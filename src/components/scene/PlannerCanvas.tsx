@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ComponentRef } from 'react';
-import { Grid, OrbitControls } from '@react-three/drei';
+import { Grid, Line, OrbitControls } from '@react-three/drei';
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber';
 import { MOUSE, TOUCH } from 'three';
 
@@ -54,6 +54,21 @@ function CaptureController() {
   return null;
 }
 
+function DraftPolygon() {
+  const tool = useEditorStore((state) => state.tool);
+  const points = useEditorStore((state) => state.draftPolygon);
+  const elevation = useEditorStore((state) => state.floors.find((floor) => floor.id === state.activeFloorId)?.elevation ?? 0);
+  if (tool !== 'polygon' || points.length === 0) return null;
+  const positions = points.map((point) => [point[0], elevation + 0.18, point[1]] as [number, number, number]);
+  return <group>
+    {positions.length > 1 ? <Line color="#D7EF35" lineWidth={3} points={positions} raycast={() => undefined} /> : null}
+    {positions.map((point, index) => <mesh key={`${point[0]}:${point[2]}:${index}`} position={point} raycast={() => undefined}>
+      <sphereGeometry args={[index === 0 ? 0.16 : 0.11, 16, 12]} />
+      <meshBasicMaterial color={index === 0 ? '#202522' : '#D7EF35'} depthTest={false} />
+    </mesh>)}
+  </group>;
+}
+
 function SceneContents() {
   const projectType = useEditorStore((state) => state.projectType);
   const site = useEditorStore((state) => state.site);
@@ -65,10 +80,17 @@ function SceneContents() {
   const tool = useEditorStore((state) => state.tool);
   const addRoomAt = useEditorStore((state) => state.addRoomAt);
   const select = useEditorStore((state) => state.select);
+  const addPolygonPoint = useEditorStore((state) => state.addPolygonPoint);
+  const completePolygon = useEditorStore((state) => state.completePolygon);
   const onGroundClick = (event: ThreeEvent<MouseEvent>) => {
     if (event.delta > 4) return;
     if (tool === 'rectangle' || tool === 'triangle') { event.stopPropagation(); addRoomAt(tool, event.point.x, event.point.z); }
+    else if (tool === 'polygon') { event.stopPropagation(); addPolygonPoint(event.point.x, event.point.z); }
     else select(null);
+  };
+  const onGroundDoubleClick = (event: ThreeEvent<MouseEvent>) => {
+    if (tool !== 'polygon') return;
+    event.stopPropagation(); completePolygon();
   };
   return <>
     <color attach="background" args={[projectType === 'plot' ? '#C8D4BC' : '#DDE0D8']} />
@@ -76,7 +98,7 @@ function SceneContents() {
     <ambientLight intensity={1.15} />
     <directionalLight castShadow intensity={2.2} position={[14, 22, 12]} shadow-mapSize-height={2048} shadow-mapSize-width={2048} />
     <hemisphereLight groundColor={projectType === 'plot' ? '#738267' : '#8B8B82'} intensity={0.45} />
-    <mesh onClick={onGroundClick} position={[0, -0.08, 0]} receiveShadow>
+    <mesh onClick={onGroundClick} onDoubleClick={onGroundDoubleClick} position={[0, -0.08, 0]} receiveShadow>
       <boxGeometry args={[site.width, 0.15, site.depth]} />
       <meshStandardMaterial color={projectType === 'plot' ? '#899E77' : '#C6C7C0'} roughness={1} />
     </mesh>
@@ -91,6 +113,7 @@ function SceneContents() {
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
       </group>;
     })}
+    <DraftPolygon />
     <SelectionTransform />
     <CameraController />
     <CaptureController />

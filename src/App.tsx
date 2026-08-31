@@ -50,6 +50,8 @@ export default function App() {
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
   const toggleDimensions = useEditorStore((state) => state.toggleDimensions);
+  const completePolygon = useEditorStore((state) => state.completePolygon);
+  const cancelPolygon = useEditorStore((state) => state.cancelPolygon);
   const hydrateAssets = useEditorStore((state) => state.hydrateAssets);
 
   useEffect(() => {
@@ -67,10 +69,12 @@ export default function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
       else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
       else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelection(); }
-      else if (event.key === 'Escape') select(null);
+      else if (event.key === 'Escape') { cancelPolygon(); select(null); }
+      else if (event.key === 'Enter') completePolygon();
       else if (event.key.toLowerCase() === 'v') setTool('select');
       else if (event.key.toLowerCase() === 'r') setTool('rectangle');
       else if (event.key.toLowerCase() === 't') setTool('triangle');
+      else if (event.key.toLowerCase() === 'p') setTool('polygon');
       else if (event.key.toLowerCase() === 'd') toggleDimensions();
       else if (event.key === ']') rotateSelection(15);
       else if (event.key === '1') setCameraPreset('perspective');
@@ -79,7 +83,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, toggleDimensions, undo]);
+  }, [cancelPolygon, completePolygon, deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, toggleDimensions, undo]);
 
   useEffect(() => {
     if (!message) return;

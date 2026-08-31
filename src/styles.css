@@ -55,7 +55,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .section-heading div { display: grid; gap: 2px; }
 .section-heading b { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .section-heading small { font-size: 10px; color: var(--muted); }
-.tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tool-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .tool-grid button { min-width: 0; height: 72px; background: #fff; border: 1px solid var(--line); border-radius: 9px; display: grid; place-items: center; align-content: center; gap: 4px; cursor: pointer; position: relative; }
 .tool-grid button span { font-size: 9px; font-weight: 700; }
 .tool-grid button kbd { position: absolute; right: 5px; top: 4px; font-family: "DM Mono", monospace; font-size: 8px; color: #999d96; }
@@ -86,7 +86,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 
 .viewport { min-width: 0; position: relative; overflow: hidden; background: #d7dbd1; }
 .canvas-shell, .canvas-shell canvas { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
-.canvas-shell.tool-rectangle canvas, .canvas-shell.tool-triangle canvas { cursor: crosshair; }
+.canvas-shell.tool-rectangle canvas, .canvas-shell.tool-triangle canvas, .canvas-shell.tool-polygon canvas { cursor: crosshair; }
 .canvas-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); color: #616761; background: rgba(248, 248, 243, .83); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.65); padding: 7px 11px; border-radius: 8px; font-size: 9px; white-space: nowrap; pointer-events: none; }
 kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; border: 1px solid #cfd1ca; background: #f1f1ed; border-radius: 4px; box-shadow: 0 1px 0 #c1c4bb; }
 .floorbar { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 220px); display: flex; align-items: stretch; gap: 4px; padding: 4px; border-radius: 11px; background: rgba(247, 247, 242, .87); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.8); box-shadow: 0 8px 22px rgba(53,60,54,.12); }
@@ -157,6 +157,8 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .texture-grid img { width: 100%; height: 48px; object-fit: cover; display: block; border-radius: 5px; }
 .texture-grid span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; padding: 5px 2px 1px; }
 .empty-materials { font-size: 9px; line-height: 1.55; color: var(--muted); margin: 0; }
+.polygon-summary { display: flex; justify-content: space-between; gap: 8px; padding: 9px 10px; margin-bottom: 8px; border: 1px solid var(--line); background: white; border-radius: 7px; color: var(--muted); font-size: 8px; }
+.polygon-summary b { color: var(--ink); font-family: "DM Mono", monospace; font-size: 9px; }
 .opening-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .opening-choices button { height: 39px; border: 1px solid var(--line); background: white; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 9px; font-weight: 700; cursor: pointer; }
 .opening-choices button.active { color: var(--ink); background: var(--acid); border-color: var(--acid-dark); }

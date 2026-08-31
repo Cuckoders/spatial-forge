@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
-import { normalizeDegrees, roomVertices, snapToGrid, wallId } from '../lib/geometry';
+import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
 import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
 
 interface EditorState {
@@ -21,6 +21,7 @@ interface EditorState {
   showAllFloors: boolean;
   showDimensions: boolean;
   tool: EditorTool;
+  draftPolygon: Point2[];
   selection: Selection | null;
   cameraPreset: CameraPreset;
   cameraRevision: number;
@@ -34,6 +35,9 @@ interface EditorState {
   setTool: (tool: EditorTool) => void;
   select: (selection: Selection | null) => void;
   addRoomAt: (shape: PlanRoom['shape'], x: number, z: number) => void;
+  addPolygonPoint: (x: number, z: number) => void;
+  completePolygon: () => void;
+  cancelPolygon: () => void;
   updateRoom: (id: string, patch: Partial<PlanRoom>) => void;
   duplicateRoom: (id: string) => void;
   removeRoom: (id: string) => void;
@@ -160,6 +164,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   showAllFloors: false,
   showDimensions: false,
   tool: 'select',
+  draftPolygon: [],
   selection: null,
   cameraPreset: 'perspective',
   cameraRevision: 0,
@@ -170,16 +175,42 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setProjectName: (name) => set({ projectName: cleanText(name, 80) || 'Новый проект' }),
   setProjectType: (projectType) => set({ projectType, selection: null }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
-  setTool: (tool) => set({ tool, selection: null }),
-  select: (selection) => set({ selection, tool: 'select' }),
+  setTool: (tool) => set({ tool, selection: null, draftPolygon: [] }),
+  select: (selection) => set({ selection, tool: 'select', draftPolygon: [] }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
       shape, x: snapToGrid(x), z: snapToGrid(z), width: shape === 'triangle' ? 4 : 4, depth: shape === 'triangle' ? 3.5 : 3,
       rotation: 0, wallHeight: state.projectType === 'plot' ? 1.2 : 2.8, wallThickness: 0.16,
       floorColor: colors[state.rooms.length % colors.length] ?? '#D8CFBB' };
-    return { rooms: [...state.rooms, room], selection: { kind: 'room', id }, tool: 'select', message: 'Блок добавлен на сетку' };
+    return { rooms: [...state.rooms, room], selection: { kind: 'room', id }, tool: 'select', draftPolygon: [], message: 'Блок добавлен на сетку' };
   }),
+  addPolygonPoint: (x, z) => {
+    const point = [snapToGrid(x), snapToGrid(z)] as const;
+    const points = get().draftPolygon;
+    const first = points[0]; const last = points.at(-1);
+    if (first && points.length >= 3 && point[0] === first[0] && point[1] === first[1]) { get().completePolygon(); return; }
+    if (last && point[0] === last[0] && point[1] === last[1]) return;
+    if (points.length >= 24) { set({ message: 'В одном контуре можно поставить до 24 точек' }); return; }
+    set({ draftPolygon: [...points, point], message: points.length === 0 ? 'Поставьте ещё минимум две точки' : null });
+  },
+  completePolygon: () => set((state) => {
+    if (state.tool !== 'polygon') return state;
+    const points = state.draftPolygon;
+    if (points.length < 3) return { message: 'Для контура нужны минимум три точки' };
+    if (!isSimplePolygon(points)) return { message: 'Линии контура не должны пересекаться' };
+    if (polygonArea(points) < 0.25) return { message: 'Площадь контура должна быть не меньше 0,25 м²' };
+    const bounds = polygonBounds(points);
+    if (bounds.width < 0.5 || bounds.depth < 0.5 || bounds.width > 50 || bounds.depth > 50) return { message: 'Габариты контура должны быть от 0,5 до 50 м' };
+    const x = (bounds.minX + bounds.maxX) / 2; const z = (bounds.minZ + bounds.maxZ) / 2;
+    const vertices = points.map((point) => [point[0] - x, point[1] - z] as [number, number]);
+    const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
+    const room: PlanRoom = { id, floorId: state.activeFloorId, name: `Контур ${count}`, shape: 'polygon', vertices, x, z,
+      width: bounds.width, depth: bounds.depth, rotation: 0, wallHeight: state.projectType === 'plot' ? 1.2 : 2.8,
+      wallThickness: 0.16, floorColor: colors[state.rooms.length % colors.length] ?? '#D8CFBB' };
+    return { rooms: [...state.rooms, room], selection: { kind: 'room', id }, tool: 'select', draftPolygon: [], message: 'Произвольный контур создан' };
+  }),
+  cancelPolygon: () => set((state) => ({ draftPolygon: [], tool: 'select', ...(state.draftPolygon.length ? { message: 'Построение контура отменено' } : {}) })),
   updateRoom: (id, patch) => set((state) => {
     let updatedRoom: PlanRoom | undefined;
     const rooms = state.rooms.map((room) => {
@@ -268,7 +299,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       wallFinishes, modelInstances: [...state.modelInstances, ...models], activeFloorId: floor.id, selection: null,
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
-  setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId) ? { activeFloorId, selection: null } : state),
+  setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId) ? { activeFloorId, selection: null, draftPolygon: [] } : state),
   removeActiveFloor: () => set((state) => {
     if (state.floors.length === 1) return { message: 'В проекте должен остаться хотя бы один этаж' };
     const remaining = state.floors.filter((floor) => floor.id !== state.activeFloorId);
@@ -330,12 +361,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
     floors: project.floors, rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', message: 'Планировка загружена' }),
+    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
       rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', message: 'Демо-проект восстановлен' });
+      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
   undo: () => undoHistory(),
@@ -386,7 +417,7 @@ function undoHistory() {
   if (!previous) return;
   historyFuture.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...previous, selection: null, tool: 'select', message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
+  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
 }
 
 function redoHistory() {
@@ -395,7 +426,7 @@ function redoHistory() {
   if (!next) return;
   historyPast.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...next, selection: null, tool: 'select', message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
+  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
 }
 
 lastHistorySnapshot = captureHistory(useEditorStore.getState());

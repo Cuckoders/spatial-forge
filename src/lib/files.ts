@@ -1,4 +1,4 @@
-import { roomVertices } from './geometry';
+import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geometry';
 import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
@@ -33,12 +33,22 @@ function readFloor(value: unknown): PlanFloor | undefined {
 function readRoom(value: unknown, floorIds: Set<string>): PlanRoom | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)) return undefined;
   const name = text(value.name, 80);
-  if (!name || !['rectangle', 'triangle'].includes(String(value.shape)) || !finite(value.x, -200, 200) || !finite(value.z, -200, 200)
+  if (!name || !['rectangle', 'triangle', 'polygon'].includes(String(value.shape)) || !finite(value.x, -200, 200) || !finite(value.z, -200, 200)
     || !finite(value.width, 0.5, 50) || !finite(value.depth, 0.5, 50) || !finite(value.rotation, -Math.PI * 20, Math.PI * 20)
     || !finite(value.wallHeight, 0.2, 12) || !finite(value.wallThickness, 0.05, 1) || typeof value.floorColor !== 'string' || !colorPattern.test(value.floorColor)) return undefined;
+  let vertices: Array<[number, number]> | undefined;
+  let width = value.width; let depth = value.depth;
+  if (value.shape === 'polygon') {
+    if (!Array.isArray(value.vertices) || value.vertices.length < 3 || value.vertices.length > 24) return undefined;
+    vertices = value.vertices.flatMap((point) => Array.isArray(point) && point.length === 2 && finite(point[0], -50, 50) && finite(point[1], -50, 50)
+      ? [[point[0], point[1]] as [number, number]] : []);
+    if (vertices.length !== value.vertices.length || !isSimplePolygon(vertices) || polygonArea(vertices) < 0.25) return undefined;
+    const bounds = polygonBounds(vertices); width = bounds.width; depth = bounds.depth;
+    if (width < 0.5 || width > 50 || depth < 0.5 || depth > 50) return undefined;
+  }
   return { id: value.id, floorId: value.floorId, name, shape: value.shape as PlanRoom['shape'], x: value.x, z: value.z,
-    width: value.width, depth: value.depth, rotation: value.rotation, wallHeight: value.wallHeight,
-    wallThickness: value.wallThickness, floorColor: value.floorColor };
+    width, depth, rotation: value.rotation, wallHeight: value.wallHeight,
+    wallThickness: value.wallThickness, floorColor: value.floorColor, ...(vertices ? { vertices } : {}) };
 }
 
 function readModel(value: unknown, floorIds: Set<string>): ModelInstance | undefined {

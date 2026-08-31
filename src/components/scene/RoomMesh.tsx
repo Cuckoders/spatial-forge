@@ -113,7 +113,7 @@ function Wall({ room, wallIndex, start, end, active, selected }: { room: PlanRoo
   </group>;
 }
 
-function TriangleFloor({ room, active, selected, onClick }: { room: PlanRoom; active: boolean; selected: boolean; onClick: (event: ThreeEvent<MouseEvent>) => void }) {
+function ShapedFloor({ room, active, selected, onClick }: { room: PlanRoom; active: boolean; selected: boolean; onClick: (event: ThreeEvent<MouseEvent>) => void }) {
   const geometry = useMemo(() => {
     const vertices = roomVertices(room); const first = vertices[0];
     const shape = new Shape();
@@ -139,8 +139,8 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
   };
   return (
     <group position={[room.x, elevation, room.z]} rotation={[0, -room.rotation, 0]}>
-      {room.shape === 'triangle'
-        ? <TriangleFloor active={active} onClick={chooseRoom} room={room} selected={roomSelected} />
+      {room.shape !== 'rectangle'
+        ? <ShapedFloor active={active} onClick={chooseRoom} room={room} selected={roomSelected} />
         : <mesh onClick={chooseRoom} position={[0, 0.06, 0]} receiveShadow>
           <boxGeometry args={[room.width, 0.12, room.depth]} />
           <meshStandardMaterial color={room.floorColor} opacity={active ? 1 : 0.15} transparent={!active} roughness={0.92} />
