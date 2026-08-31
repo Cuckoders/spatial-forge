@@ -39,6 +39,8 @@ interface EditorState {
   completePolygon: () => void;
   cancelPolygon: () => void;
   updatePolygonVertex: (id: string, index: number, patch: { x?: number; z?: number }) => void;
+  insertPolygonVertex: (id: string, afterIndex: number) => void;
+  removePolygonVertex: (id: string, index: number) => void;
   updateRoom: (id: string, patch: Partial<PlanRoom>) => void;
   duplicateRoom: (id: string) => void;
   removeRoom: (id: string) => void;
@@ -150,6 +152,15 @@ function fitOpeningToRoom(opening: WallOpening, room: PlanRoom): WallOpening | u
   return { ...opening, width, height, sillHeight, offset: clamp(opening.offset, halfOffset, 1 - halfOffset) };
 }
 
+function remapRoomFinishes(finishes: Record<string, WallFinish>, roomId: string, sourceWallIndices: number[]) {
+  const next = Object.fromEntries(Object.entries(finishes).filter(([key]) => !key.startsWith(`${roomId}:wall:`)));
+  sourceWallIndices.forEach((sourceIndex, targetIndex) => {
+    const finish = finishes[wallId(roomId, sourceIndex)];
+    if (finish) next[wallId(roomId, targetIndex)] = finish;
+  });
+  return next;
+}
+
 export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, get) => ({
   projectName: initialProject.name,
   projectType: initialProject.projectType,
@@ -229,6 +240,51 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       const fitted = fitOpeningToRoom(opening, updatedRoom); return fitted ? [fitted] : [];
     });
     return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), openings };
+  }),
+  insertPolygonVertex: (id, afterIndex) => set((state) => {
+    const room = state.rooms.find((item) => item.id === id);
+    const source = room?.vertices;
+    if (!room || room.shape !== 'polygon' || !source || !source[afterIndex]) return state;
+    if (source.length >= 24) return { message: 'В одном контуре можно создать до 24 вершин' };
+    const nextPoint = source[(afterIndex + 1) % source.length]; if (!nextPoint) return state;
+    const midpoint = [(source[afterIndex][0] + nextPoint[0]) / 2, (source[afterIndex][1] + nextPoint[1]) / 2] as [number, number];
+    const vertices = [...source.slice(0, afterIndex + 1), midpoint, ...source.slice(afterIndex + 1)];
+    const updatedRoom = { ...room, vertices };
+    const sourceWallIndices = vertices.map((_, targetIndex) => targetIndex <= afterIndex ? targetIndex : targetIndex === afterIndex + 1 ? afterIndex : targetIndex - 1);
+    const openings = state.openings.flatMap((opening) => {
+      if (opening.roomId !== id) return [opening];
+      const remapped = opening.wallIndex < afterIndex ? opening
+        : opening.wallIndex > afterIndex ? { ...opening, wallIndex: opening.wallIndex + 1 }
+          : opening.offset <= 0.5 ? { ...opening, offset: opening.offset * 2 }
+            : { ...opening, wallIndex: opening.wallIndex + 1, offset: (opening.offset - 0.5) * 2 };
+      const fitted = fitOpeningToRoom(remapped, updatedRoom); return fitted ? [fitted] : [];
+    });
+    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item),
+      wallFinishes: remapRoomFinishes(state.wallFinishes, id, sourceWallIndices), openings, message: 'Новая вершина добавлена в середину стены' };
+  }),
+  removePolygonVertex: (id, index) => set((state) => {
+    const room = state.rooms.find((item) => item.id === id);
+    const source = room?.vertices;
+    if (!room || room.shape !== 'polygon' || !source || !source[index]) return state;
+    if (source.length <= 3) return { message: 'В контуре должны остаться минимум три вершины' };
+    const vertices = source.filter((_, pointIndex) => pointIndex !== index);
+    if (!isSimplePolygon(vertices)) return { message: 'Удаление этой вершины создаст пересечение стен' };
+    if (polygonArea(vertices) < 0.25) return { message: 'После удаления площадь будет меньше 0,25 м²' };
+    const bounds = polygonBounds(vertices);
+    if (bounds.width < 0.5 || bounds.depth < 0.5) return { message: 'После удаления контур станет слишком узким' };
+    const updatedRoom = { ...room, vertices, width: bounds.width, depth: bounds.depth };
+    const sourceWallIndices = source.map((_, sourceIndex) => sourceIndex).filter((sourceIndex) => sourceIndex !== index);
+    const previousIndex = (index - 1 + source.length) % source.length;
+    const removedOpening = state.openings.some((opening) => opening.roomId === id && (opening.wallIndex === previousIndex || opening.wallIndex === index));
+    const openings = state.openings.flatMap((opening) => {
+      if (opening.roomId !== id) return [opening];
+      if (opening.wallIndex === previousIndex || opening.wallIndex === index) return [];
+      const wallIndex = sourceWallIndices.indexOf(opening.wallIndex); if (wallIndex < 0) return [];
+      const fitted = fitOpeningToRoom({ ...opening, wallIndex }, updatedRoom); return fitted ? [fitted] : [];
+    });
+    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item),
+      wallFinishes: remapRoomFinishes(state.wallFinishes, id, sourceWallIndices), openings,
+      message: removedOpening ? 'Вершина и проёмы соседних стен удалены' : 'Вершина удалена' };
   }),
   updateRoom: (id, patch) => set((state) => {
     let updatedRoom: PlanRoom | undefined;

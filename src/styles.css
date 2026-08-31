@@ -161,9 +161,15 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .polygon-summary b { color: var(--ink); font-family: "DM Mono", monospace; font-size: 9px; }
 .vertex-note { margin: -2px 0 10px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .vertex-list { display: grid; gap: 7px; }
-.vertex-row { display: grid; grid-template-columns: 23px minmax(0, 1fr); gap: 7px; align-items: center; }
+.vertex-row { display: grid; grid-template-columns: 23px minmax(0, 1fr); gap: 7px; align-items: start; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
+.vertex-row:last-child { padding-bottom: 0; border-bottom: 0; }
 .vertex-row > b { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: var(--ink); color: var(--acid); font: 700 9px "DM Mono", monospace; }
 .vertex-row .field-row { margin: 0; }
+.vertex-controls { display: grid; gap: 5px; }
+.vertex-actions { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 4px; }
+.vertex-actions button { height: 27px; border: 1px solid var(--line); background: white; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 7px; font-weight: 700; cursor: pointer; }
+.vertex-actions button.danger { color: var(--danger); }
+.vertex-actions button:disabled { opacity: .35; cursor: not-allowed; }
 .vertex-index-label { min-width: 18px; height: 18px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: #202522; color: #e8ff57; border: 1px solid rgba(232,255,87,.8); font: 700 8px "DM Mono", monospace; box-shadow: 0 2px 7px rgba(0,0,0,.25); }
 .opening-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .opening-choices button { height: 39px; border: 1px solid var(--line); background: white; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 9px; font-weight: 700; cursor: pointer; }
