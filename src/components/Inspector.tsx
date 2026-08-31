@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BrickWall, Cable, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, House, Layers3, Link2, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { UTILITY_DEVICE_KINDS, UTILITY_KINDS, utilityLength, utilityRouteProjection } from '../lib/utilities';
 import { resolveUtilityDeviceMount, utilityWallMountLabel } from '../lib/utilityWallMounts';
+import { analyzeUtilityNetworks, type UtilityRouteAnalysis } from '../lib/utilityAnalysis';
 import { useEditorStore } from '../store/editorStore';
 import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening } from '../types';
 
@@ -13,6 +14,17 @@ function NumericField({ label, ariaLabel, value, min, max, step = 0.1, unit, dis
   return <label className="field"><span>{label}</span><div><input aria-label={ariaLabel} disabled={disabled} max={max} min={min} onChange={(event) => {
     const nextValue = event.target.valueAsNumber; if (Number.isFinite(nextValue)) onChange(nextValue);
   }} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
+}
+
+function UtilityDiameterAudit({ diameter, analysis, onApply }: { diameter: number; analysis: UtilityRouteAnalysis | undefined; onApply: (diameter: number) => void }) {
+  if (!analysis) return null;
+  const undersized = diameter + 0.000_001 < analysis.recommendedDiameter;
+  return <section className="inspector-section"><div className="inspector-title"><span>Проверка нагрузки</span><Cable size={16} /></div>
+    <div className={`connection-status${undersized ? ' warning' : ' connected'}`}><span /><div><b>{undersized ? 'Диаметр меньше рекомендации' : 'Диаметр соответствует нагрузке'}</b><small>Фактически {(diameter * 1000).toFixed(0)} мм · рекомендуется {(analysis.recommendedDiameter * 1000).toFixed(0)} мм</small></div></div>
+    <div className="route-load-summary"><span><b>{analysis.demand.toFixed(analysis.demand % 1 ? 1 : 0)}</b><small>{analysis.demandUnit}</small></span><span><b>{analysis.connectedDeviceCount}</b><small>подключённых точек</small></span><span><b>{analysis.networkRouteCount}</b><small>трасс в связанном участке</small></span></div>
+    {undersized ? <button className="connection-auto" onClick={() => onApply(analysis.recommendedDiameter)} type="button">Применить рекомендацию · {(analysis.recommendedDiameter * 1000).toFixed(0)} мм</button> : null}
+    <p className="vertex-note">Расчёт консервативный: нагрузка суммируется для трасс, связанных узлами и стояками.</p>
+  </section>;
 }
 
 function pluralize(count: number, one: string, few: string, many: string) {
@@ -170,10 +182,16 @@ function WallInspector({ roomId, wallIndex }: { roomId: string; wallIndex: numbe
 
 function UtilityInspector({ id }: { id: string }) {
   const route = useEditorStore((state) => state.utilities.find((item) => item.id === id));
+  const routes = useEditorStore((state) => state.utilities);
+  const devices = useEditorStore((state) => state.utilityDevices);
+  const risers = useEditorStore((state) => state.utilityRisers);
+  const junctions = useEditorStore((state) => state.utilityJunctions);
   const updateUtility = useEditorStore((state) => state.updateUtility);
   const duplicateUtility = useEditorStore((state) => state.duplicateUtility);
   const removeUtility = useEditorStore((state) => state.removeUtility);
+  const analysisByRoute = useMemo(() => analyzeUtilityNetworks({ routes, devices, risers, junctions }), [devices, junctions, risers, routes]);
   if (!route) return <EmptyInspector />;
+  const analysis = analysisByRoute.get(route.id);
   const length = utilityLength(route);
   const angle = Math.atan2(route.endZ - route.startZ, route.endX - route.startX);
   const setLength = (nextLength: number) => updateUtility(route.id, {
@@ -194,19 +212,26 @@ function UtilityInspector({ id }: { id: string }) {
       <div className="field-row"><NumericField ariaLabel="Высота трассы" label="Над уровнем этажа" max={12} min={0.01} onChange={(elevation) => updateUtility(route.id, { elevation })} step={0.01} unit="м" value={route.elevation} /><NumericField ariaLabel="Диаметр трассы" label="Диаметр" max={500} min={5} onChange={(diameter) => updateUtility(route.id, { diameter: diameter / 1000 })} step={1} unit="мм" value={route.diameter * 1000} /></div>
       <div className="utility-summary"><span style={{ background: UTILITY_KINDS[route.kind].color }} /><b>{UTILITY_KINDS[route.kind].label}</b><small>{length.toFixed(2)} м · {(angle * 180 / Math.PI + 360) % 360 < 0.05 ? '0' : ((angle * 180 / Math.PI + 360) % 360).toFixed(1)}°</small></div>
     </section>
+    <UtilityDiameterAudit analysis={analysis} diameter={route.diameter} onApply={(diameter) => updateUtility(route.id, { diameter })} />
     <div className="inspector-actions"><button onClick={() => duplicateUtility(route.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeUtility(route.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
   </>;
 }
 
 function UtilityRiserInspector({ id }: { id: string }) {
-  const riser = useEditorStore((state) => state.utilityRisers.find((item) => item.id === id));
+  const risers = useEditorStore((state) => state.utilityRisers);
+  const riser = risers.find((item) => item.id === id);
   const floors = useEditorStore((state) => state.floors);
   const routes = useEditorStore((state) => state.utilities);
+  const devices = useEditorStore((state) => state.utilityDevices);
+  const junctions = useEditorStore((state) => state.utilityJunctions);
   const updateUtilityRiser = useEditorStore((state) => state.updateUtilityRiser);
   const connectUtilityRiser = useEditorStore((state) => state.connectUtilityRiser);
   const autoConnectUtilityRiser = useEditorStore((state) => state.autoConnectUtilityRiser);
   const duplicateUtilityRiser = useEditorStore((state) => state.duplicateUtilityRiser);
   const removeUtilityRiser = useEditorStore((state) => state.removeUtilityRiser);
+  const analysisByRoute = useMemo(() => analyzeUtilityNetworks({ routes, devices, risers, junctions }), [devices, junctions, risers, routes]);
+  const linkedAnalysis = [riser?.fromRouteId, riser?.toRouteId].flatMap((routeId) => routeId ? analysisByRoute.get(routeId) ?? [] : [])
+    .sort((left, right) => right.recommendedDiameter - left.recommendedDiameter)[0];
   if (!riser) return <EmptyInspector />;
   const orderedFloors = [...floors].sort((left, right) => left.elevation - right.elevation);
   const fromFloor = floors.find((floor) => floor.id === riser.fromFloorId);
@@ -239,6 +264,7 @@ function UtilityRiserInspector({ id }: { id: string }) {
       <div className="field-row"><NumericField label="X" max={200} min={-200} onChange={(x) => updateUtilityRiser(riser.id, { x })} unit="м" value={riser.x} /><NumericField label="Z" max={200} min={-200} onChange={(z) => updateUtilityRiser(riser.id, { z })} unit="м" value={riser.z} /></div>
       <NumericField ariaLabel="Диаметр стояка" label="Диаметр" max={500} min={5} onChange={(diameter) => updateUtilityRiser(riser.id, { diameter: diameter / 1000 })} step={1} unit="мм" value={riser.diameter * 1000} />
     </section>
+    <UtilityDiameterAudit analysis={linkedAnalysis} diameter={riser.diameter} onApply={(diameter) => updateUtilityRiser(riser.id, { diameter })} />
     <section className="inspector-section"><div className="inspector-title"><span>Подключение этажей</span><Link2 size={16} /></div>
       {renderConnection('from', from, fromFloor?.name ?? 'Начальный этаж')}{renderConnection('to', to, toFloor?.name ?? 'Конечный этаж')}
       <button className="connection-auto" disabled={!from.compatibleRoutes.length && !to.compatibleRoutes.length} onClick={() => autoConnectUtilityRiser(riser.id)} type="button"><Link2 size={14} /> Подключить ближайшие</button>
@@ -248,13 +274,19 @@ function UtilityRiserInspector({ id }: { id: string }) {
 }
 
 function UtilityJunctionInspector({ id }: { id: string }) {
-  const junction = useEditorStore((state) => state.utilityJunctions.find((item) => item.id === id));
+  const junctions = useEditorStore((state) => state.utilityJunctions);
+  const junction = junctions.find((item) => item.id === id);
   const routes = useEditorStore((state) => state.utilities);
+  const devices = useEditorStore((state) => state.utilityDevices);
+  const risers = useEditorStore((state) => state.utilityRisers);
   const updateUtilityJunction = useEditorStore((state) => state.updateUtilityJunction);
   const toggleUtilityJunctionRoute = useEditorStore((state) => state.toggleUtilityJunctionRoute);
   const autoConnectUtilityJunction = useEditorStore((state) => state.autoConnectUtilityJunction);
   const duplicateUtilityJunction = useEditorStore((state) => state.duplicateUtilityJunction);
   const removeUtilityJunction = useEditorStore((state) => state.removeUtilityJunction);
+  const analysisByRoute = useMemo(() => analyzeUtilityNetworks({ routes, devices, risers, junctions }), [devices, junctions, risers, routes]);
+  const linkedAnalysis = (junction?.routeIds ?? []).flatMap((routeId) => analysisByRoute.get(routeId) ?? [])
+    .sort((left, right) => right.recommendedDiameter - left.recommendedDiameter)[0];
   if (!junction) return <EmptyInspector />;
   const compatibleRoutes = routes.filter((route) => route.floorId === junction.floorId && route.kind === junction.kind)
     .map((route) => ({ route, distance: utilityRouteProjection(route, junction.x, junction.z).distance }))
@@ -269,6 +301,7 @@ function UtilityJunctionInspector({ id }: { id: string }) {
       <div className="field-row"><NumericField label="X" max={200} min={-200} onChange={(x) => updateUtilityJunction(junction.id, { x })} unit="м" value={junction.x} /><NumericField label="Z" max={200} min={-200} onChange={(z) => updateUtilityJunction(junction.id, { z })} unit="м" value={junction.z} /></div>
       <div className="field-row"><NumericField ariaLabel="Высота узла" label="Высота" max={12} min={0.01} onChange={(elevation) => updateUtilityJunction(junction.id, { elevation })} step={0.01} unit="м" value={junction.elevation} /><NumericField ariaLabel="Диаметр узла" label="Диаметр" max={500} min={5} onChange={(diameter) => updateUtilityJunction(junction.id, { diameter: diameter / 1000 })} step={1} unit="мм" value={junction.diameter * 1000} /></div>
     </section>
+    <UtilityDiameterAudit analysis={linkedAnalysis} diameter={junction.diameter} onApply={(diameter) => updateUtilityJunction(junction.id, { diameter })} />
     <section className="inspector-section"><div className="inspector-title"><span>Ветви узла</span><Link2 size={16} /></div>
       <div className={`connection-status${connectedCount >= 2 ? ' connected' : ' warning'}`}><span /><div><b>{connectedCount >= 2 ? 'Ветвление сформировано' : 'Недостаточно трасс'}</b><small>{connectedCount ? `Подключено: ${connectedCount} из ${compatibleRoutes.length}` : compatibleRoutes.length ? 'Выберите минимум две трассы' : 'Совместимых трасс на этаже нет'}</small></div></div>
       <div className="junction-route-list">{compatibleRoutes.map(({ route, distance }) => <label key={route.id}><input aria-label={`Подключить трассу ${route.name}`} checked={junction.routeIds.includes(route.id)} onChange={() => toggleUtilityJunctionRoute(junction.id, route.id)} type="checkbox" /><span style={{ background: UTILITY_KINDS[route.kind].color }} /><b>{route.name}</b><small>{distance.toFixed(2)} м</small></label>)}</div>

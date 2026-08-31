@@ -1,10 +1,11 @@
-import { useRef, type ChangeEvent } from 'react';
+import { useMemo, useRef, type ChangeEvent } from 'react';
 import { Armchair, BedDouble, Box, BrickWall, Cable, Cuboid, Droplets, Eye, EyeOff, Flame, GitFork, ImagePlus, MousePointer2, MoveUpRight, PenTool, Square, TableProperties, Trash2, Trees, Triangle, Upload } from 'lucide-react';
 
 import { deletePersistedAsset, persistAsset } from '../lib/assetStorage';
 import { createModelAsset, createTextureAsset } from '../lib/files';
 import { useEditorStore } from '../store/editorStore';
 import { UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
+import { analyzeUtilityNetworks } from '../lib/utilityAnalysis';
 import type { BuiltInModelKind, EditorTool, UtilityDeviceKind, UtilityKind } from '../types';
 
 const tools: Array<{ id: EditorTool; label: string; hint: string; icon: typeof MousePointer2 }> = [
@@ -70,6 +71,13 @@ export function ToolPanel() {
   const activeUtilityDevices = utilityDevices.filter((device) => device.floorId === activeFloorId);
   const activeUtilityRisers = utilityRisers.filter((riser) => riser.fromFloorId === activeFloorId || riser.toFloorId === activeFloorId);
   const activeUtilityJunctions = utilityJunctions.filter((junction) => junction.floorId === activeFloorId);
+  const utilityAnalysis = useMemo(() => analyzeUtilityNetworks({ routes: utilities, devices: utilityDevices, risers: utilityRisers, junctions: utilityJunctions }),
+    [utilities, utilityDevices, utilityJunctions, utilityRisers]);
+  const recommendedForRoutes = (routeIds: Array<string | undefined>) => routeIds.reduce((maximum, routeId) => Math.max(maximum, routeId ? utilityAnalysis.get(routeId)?.recommendedDiameter ?? 0 : 0), 0);
+  const undersizedActiveRouteCount = utilities.filter((route) => route.floorId === activeFloorId && utilityAnalysis.get(route.id)?.undersized).length;
+  const undersizedActiveRiserCount = activeUtilityRisers.filter((riser) => riser.diameter + 0.000_001 < recommendedForRoutes([riser.fromRouteId, riser.toRouteId])).length;
+  const undersizedActiveJunctionCount = activeUtilityJunctions.filter((junction) => junction.diameter + 0.000_001 < recommendedForRoutes(junction.routeIds)).length;
+  const undersizedActiveElementCount = undersizedActiveRouteCount + undersizedActiveRiserCount + undersizedActiveJunctionCount;
   const unconnectedDeviceCount = activeUtilityDevices.filter((device) => !device.routeId).length;
   const unconnectedRiserEndpointCount = activeUtilityRisers.reduce((count, riser) => count
     + Number(riser.fromFloorId === activeFloorId && !riser.fromRouteId) + Number(riser.toFloorId === activeFloorId && !riser.toRouteId), 0);
@@ -122,6 +130,7 @@ export function ToolPanel() {
             <button aria-label={`${visible ? 'Скрыть' : 'Показать'}: ${item.label}`} aria-pressed={visible} className={`utility-visibility${visible ? ' visible' : ''}`} onClick={() => toggleUtilityVisibility(item.id)} title={`${visible ? 'Скрыть' : 'Показать'} трассы`} type="button">{visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
           </div>; })}
         </div>
+        {undersizedActiveElementCount ? <div className="connection-audit"><span>{undersizedActiveElementCount}</span><div><b>Недостаточный диаметр</b><small>Проверьте трассы, стояки и узлы</small></div></div> : utilities.some((route) => route.floorId === activeFloorId) ? <div className="connection-audit ready"><span>✓</span><div><b>Диаметры проверены</b><small>Связанный участок соответствует нагрузке</small></div></div> : null}
         <div className="utility-device-heading"><b>Стояки между этажами</b><span>{activeUtilityRisers.length}</span></div>
         <div className="utility-riser-grid">{utilityKinds.map((item) => { const count = activeUtilityRisers.filter((riser) => riser.kind === item.id).length; return <button aria-pressed={tool === 'utility-riser' && utilityKind === item.id} className={tool === 'utility-riser' && utilityKind === item.id ? 'active' : ''} disabled={floorCount < 2} key={item.id} onClick={() => { setUtilityKind(item.id); setTool('utility-riser'); }} type="button"><MoveUpRight size={14} style={{ color: item.color }} /><b>{item.id === 'electric' ? 'Эл. стояк' : item.id === 'water' ? 'Вода' : 'Тепло'}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
         {unconnectedRiserEndpointCount ? <div className="connection-audit"><span>{unconnectedRiserEndpointCount}</span><div><b>Концы стояков без связи</b><small>Подключите трассы текущего этажа</small></div></div> : activeUtilityRisers.length ? <div className="connection-audit ready"><span>✓</span><div><b>Стояки подключены</b><small>Текущий этаж связан с трассами</small></div></div> : null}

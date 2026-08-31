@@ -290,6 +290,10 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .connection-status.connected > span { background: #7b8a35; }
 .connection-auto { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--ink); border-radius: 7px; background: var(--ink); color: white; font-size: 8px; font-weight: 700; cursor: pointer; }
 .connection-auto:disabled { border-color: var(--line); background: #e7e8e2; color: #9da19b; cursor: default; }
+.route-load-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.route-load-summary > span { min-width: 0; min-height: 45px; display: grid; align-content: center; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: white; text-align: center; }
+.route-load-summary b { font: 800 11px "DM Mono", monospace; }
+.route-load-summary small { color: var(--muted); font-size: 6px; line-height: 1.25; }
 .riser-connection-card { display: grid; gap: 5px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: #f7f7f2; }
 .riser-connection-card > b { font-size: 8px; }
 .junction-route-list { max-height: 168px; display: grid; gap: 4px; overflow: auto; }
