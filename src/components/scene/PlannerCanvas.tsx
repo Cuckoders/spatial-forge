@@ -1,10 +1,11 @@
-import { useEffect, useRef, type ComponentRef, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, type ComponentRef, type RefObject } from 'react';
 import { Grid, Html, Line, OrbitControls } from '@react-three/drei';
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber';
 import { MOUSE, TOUCH, Vector3, type Camera } from 'three';
 
 import { downloadBlob, safeDownloadName } from '../../lib/files';
 import { boundsForModel, boundsForRoom, type Bounds2D } from '../../lib/snapping';
+import { wallJoinOffsetsMap } from '../../lib/wallJoins';
 import { useEditorStore } from '../../store/editorStore';
 import type { ObjectSelection } from '../../types';
 import { ModelMesh } from './ModelMesh';
@@ -161,6 +162,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const previewWall = useEditorStore((state) => state.previewWall);
   const completePolygon = useEditorStore((state) => state.completePolygon);
   const activeFloorElevation = floors.find((floor) => floor.id === activeFloorId)?.elevation ?? 0;
+  const wallJoins = useMemo(() => wallJoinOffsetsMap(walls), [walls]);
 
   useEffect(() => {
     const updateSelectionBox = (event: PointerEvent) => {
@@ -254,7 +256,8 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
       if (!active && !showAllFloors) return null;
       return <group key={floor.id}>
         {rooms.filter((room) => room.floorId === floor.id).map((room) => <RoomMesh key={room.id} active={active} elevation={floor.elevation} room={room} />)}
-        {walls.filter((wall) => wall.floorId === floor.id).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation} wall={wall} />)}
+        {walls.filter((wall) => wall.floorId === floor.id).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation}
+          joins={wallJoins.get(wall.id)!} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
       </group>;
     })}

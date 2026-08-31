@@ -1,14 +1,49 @@
+import { useEffect, useMemo } from 'react';
 import { Edges, Html } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
+import { BufferGeometry, Float32BufferAttribute } from 'three';
 
+import type { WallJoinOffsets } from '../../lib/wallJoins';
 import { useEditorStore } from '../../store/editorStore';
 import type { PlanWall, StandaloneWallOpening } from '../../types';
 
-function WallSegment({ width, height, x, y, wall, active, selected }: { width: number; height: number; x: number; y: number; wall: PlanWall; active: boolean; selected: boolean }) {
-  if (width <= 0.015 || height <= 0.015) return null;
-  return <mesh castShadow position={[x, y, 0]} receiveShadow>
-    <boxGeometry args={[width, height, wall.thickness]} />
-    <meshStandardMaterial color={wall.color} opacity={active ? 1 : 0.15} roughness={0.84} transparent={!active} />
+function createWallSegmentGeometry(startPositive: number, startNegative: number, endPositive: number, endNegative: number, height: number, halfThickness: number) {
+  const geometry = new BufferGeometry();
+  const vertices = new Float32Array([
+    startPositive, 0, halfThickness, endPositive, 0, halfThickness, endNegative, 0, -halfThickness, startNegative, 0, -halfThickness,
+    startPositive, height, halfThickness, endPositive, height, halfThickness, endNegative, height, -halfThickness, startNegative, height, -halfThickness,
+  ]);
+  geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3));
+  geometry.setIndex([
+    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6,
+    0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2,
+    2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0,
+  ]);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+interface WallSegmentProps {
+  startPositive: number;
+  startNegative: number;
+  endPositive: number;
+  endNegative: number;
+  bottom: number;
+  height: number;
+  wall: PlanWall;
+  active: boolean;
+  selected: boolean;
+}
+
+function WallSegment({ startPositive, startNegative, endPositive, endNegative, bottom, height, wall, active, selected }: WallSegmentProps) {
+  const geometry = useMemo(() => createWallSegmentGeometry(startPositive, startNegative, endPositive, endNegative, height, wall.thickness / 2),
+    [endNegative, endPositive, height, startNegative, startPositive, wall.thickness]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  if (Math.max(Math.abs(endPositive - startPositive), Math.abs(endNegative - startNegative)) <= 0.015 || height <= 0.015) return null;
+  return <mesh castShadow position={[0, bottom, 0]} receiveShadow>
+    <primitive attach="geometry" object={geometry} />
+    <meshStandardMaterial color={wall.color} flatShading opacity={active ? 1 : 0.15} roughness={0.84} transparent={!active} />
     {selected ? <Edges color="#E8FF57" threshold={10} /> : null}
   </mesh>;
 }
@@ -35,7 +70,7 @@ function OpeningDecoration({ opening, center, thickness, active }: { opening: St
   </group>;
 }
 
-export function StandaloneWallMesh({ wall, elevation, active }: { wall: PlanWall; elevation: number; active: boolean }) {
+export function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: PlanWall; joins: WallJoinOffsets; elevation: number; active: boolean }) {
   const selection = useEditorStore((state) => state.selection);
   const opening = useEditorStore((state) => state.wallOpenings.find((item) => item.wallId === wall.id));
   const showDimensions = useEditorStore((state) => state.showDimensions);
@@ -49,16 +84,26 @@ export function StandaloneWallMesh({ wall, elevation, active }: { wall: PlanWall
     event.stopPropagation(); select({ kind: 'partition', id: wall.id });
   };
   const center = opening ? Math.min(length / 2 - opening.width / 2, Math.max(-length / 2 + opening.width / 2, -length / 2 + opening.offset * length)) : 0;
-  const leftWidth = opening ? center - opening.width / 2 + length / 2 : length;
-  const rightWidth = opening ? length / 2 - center - opening.width / 2 : 0;
   const topHeight = opening ? wall.height - opening.sillHeight - opening.height : 0;
+  const wallStart = -length / 2;
+  const wallEnd = length / 2;
+  const startPositive = wallStart + joins.start.positive;
+  const startNegative = wallStart + joins.start.negative;
+  const endPositive = wallEnd + joins.end.positive;
+  const endNegative = wallEnd + joins.end.negative;
+  const openingStart = opening ? center - opening.width / 2 : wallEnd;
+  const openingEnd = opening ? center + opening.width / 2 : wallEnd;
 
   return <group onClick={choose} position={[(wall.startX + wall.endX) / 2, elevation + 0.12, (wall.startZ + wall.endZ) / 2]} rotation={[0, -angle, 0]}>
-    <WallSegment active={active} height={wall.height} selected={selected} wall={wall} width={leftWidth} x={-length / 2 + leftWidth / 2} y={wall.height / 2} />
+    <WallSegment active={active} bottom={0} endNegative={openingStart} endPositive={openingStart} height={wall.height} selected={selected}
+      startNegative={startNegative} startPositive={startPositive} wall={wall} />
     {opening ? <>
-      <WallSegment active={active} height={wall.height} selected={selected} wall={wall} width={rightWidth} x={length / 2 - rightWidth / 2} y={wall.height / 2} />
-      <WallSegment active={active} height={opening.sillHeight} selected={selected} wall={wall} width={opening.width} x={center} y={opening.sillHeight / 2} />
-      <WallSegment active={active} height={topHeight} selected={selected} wall={wall} width={opening.width} x={center} y={opening.sillHeight + opening.height + topHeight / 2} />
+      <WallSegment active={active} bottom={0} endNegative={endNegative} endPositive={endPositive} height={wall.height} selected={selected}
+        startNegative={openingEnd} startPositive={openingEnd} wall={wall} />
+      <WallSegment active={active} bottom={0} endNegative={openingEnd} endPositive={openingEnd} height={opening.sillHeight} selected={selected}
+        startNegative={openingStart} startPositive={openingStart} wall={wall} />
+      <WallSegment active={active} bottom={opening.sillHeight + opening.height} endNegative={openingEnd} endPositive={openingEnd} height={topHeight} selected={selected}
+        startNegative={openingStart} startPositive={openingStart} wall={wall} />
       <OpeningDecoration active={active} center={center} opening={opening} thickness={wall.thickness} />
     </> : null}
     {active && (showDimensions || selected) ? <Html center distanceFactor={10} position={[0, wall.height + 0.28, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[25, 0]}>
