@@ -4,6 +4,12 @@ export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
 export type BuiltInModelKind = 'sofa' | 'table' | 'bed' | 'tree' | 'stairs';
 
+export interface SnapGuide {
+  axis: 'x' | 'z';
+  value: number;
+  label: string;
+}
+
 export interface SiteSettings {
   width: number;
   depth: number;

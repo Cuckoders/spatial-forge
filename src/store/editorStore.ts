@@ -4,7 +4,7 @@ import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, TextureAsset, WallFinish, WallOpening } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -23,6 +23,7 @@ interface EditorState {
   tool: EditorTool;
   draftPolygon: Point2[];
   selection: Selection | null;
+  snapGuides: SnapGuide[];
   cameraPreset: CameraPreset;
   cameraRevision: number;
   captureRevision: number;
@@ -34,6 +35,7 @@ interface EditorState {
   updateSite: (patch: Partial<SiteSettings>) => void;
   setTool: (tool: EditorTool) => void;
   select: (selection: Selection | null, additive?: boolean) => void;
+  setSnapGuides: (guides: SnapGuide[]) => void;
   addRoomAt: (shape: PlanRoom['shape'], x: number, z: number) => void;
   addPolygonPoint: (x: number, z: number) => void;
   completePolygon: () => void;
@@ -183,6 +185,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   tool: 'select',
   draftPolygon: [],
   selection: null,
+  snapGuides: [],
   cameraPreset: 'perspective',
   cameraRevision: 0,
   captureRevision: 0,
@@ -190,18 +193,19 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   canUndo: false,
   canRedo: false,
   setProjectName: (name) => set({ projectName: cleanText(name, 80) || 'Новый проект' }),
-  setProjectType: (projectType) => set({ projectType, selection: null }),
+  setProjectType: (projectType) => set({ projectType, selection: null, snapGuides: [] }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
-  setTool: (tool) => set({ tool, selection: null, draftPolygon: [] }),
+  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], snapGuides: [] }),
   select: (selection, additive = false) => set((state) => {
-    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [] };
+    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], snapGuides: [] };
     const currentItems = state.selection?.kind === 'group' ? state.selection.items
       : state.selection && isObjectSelection(state.selection) ? [state.selection] : [];
     const key = objectSelectionKey(selection);
     const exists = currentItems.some((item) => objectSelectionKey(item) === key);
     const items = exists ? currentItems.filter((item) => objectSelectionKey(item) !== key) : [...currentItems, selection];
-    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [] };
+    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], snapGuides: [] };
   }),
+  setSnapGuides: (snapGuides) => set({ snapGuides }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
@@ -394,7 +398,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       wallFinishes, modelInstances: [...state.modelInstances, ...models], activeFloorId: floor.id, selection: null,
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
-  setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId) ? { activeFloorId, selection: null, draftPolygon: [] } : state),
+  setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId) ? { activeFloorId, selection: null, draftPolygon: [], snapGuides: [] } : state),
   removeActiveFloor: () => set((state) => {
     if (state.floors.length === 1) return { message: 'В проекте должен остаться хотя бы один этаж' };
     const remaining = state.floors.filter((floor) => floor.id !== state.activeFloorId);
@@ -516,12 +520,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
     floors: project.floors, rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], message: 'Планировка загружена' }),
+    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
       rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], message: 'Демо-проект восстановлен' });
+      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
   undo: () => undoHistory(),
@@ -572,7 +576,7 @@ function undoHistory() {
   if (!previous) return;
   historyFuture.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
+  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
 }
 
 function redoHistory() {
@@ -581,7 +585,7 @@ function redoHistory() {
   if (!next) return;
   historyPast.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
+  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
 }
 
 lastHistorySnapshot = captureHistory(useEditorStore.getState());

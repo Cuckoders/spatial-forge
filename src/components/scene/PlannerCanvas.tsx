@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ComponentRef } from 'react';
-import { Grid, Line, OrbitControls } from '@react-three/drei';
+import { Grid, Html, Line, OrbitControls } from '@react-three/drei';
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber';
 import { MOUSE, TOUCH } from 'three';
 
@@ -69,6 +69,22 @@ function DraftPolygon() {
   </group>;
 }
 
+function SnapGuides() {
+  const guides = useEditorStore((state) => state.snapGuides);
+  const site = useEditorStore((state) => state.site);
+  const elevation = useEditorStore((state) => state.floors.find((floor) => floor.id === state.activeFloorId)?.elevation ?? 0);
+  if (!guides.length) return null;
+  return <group position={[0, elevation + 0.32, 0]}>{guides.map((guide) => {
+    const points = guide.axis === 'x' ? [[guide.value, 0, -site.depth / 2], [guide.value, 0, site.depth / 2]]
+      : [[-site.width / 2, 0, guide.value], [site.width / 2, 0, guide.value]];
+    const labelPosition = guide.axis === 'x' ? [guide.value, 0, -site.depth / 2 + 0.6] : [-site.width / 2 + 0.8, 0, guide.value];
+    return <group key={`${guide.axis}:${guide.value}`}>
+      <Line color="#D7EF35" depthTest={false} lineWidth={2.2} points={points as [number, number, number][]} raycast={() => undefined} renderOrder={50} />
+      <Html center position={labelPosition as [number, number, number]} style={{ pointerEvents: 'none' }} zIndexRange={[45, 0]}><div className="snap-guide-label">{guide.label}</div></Html>
+    </group>;
+  })}</group>;
+}
+
 function SceneContents() {
   const projectType = useEditorStore((state) => state.projectType);
   const site = useEditorStore((state) => state.site);
@@ -114,6 +130,7 @@ function SceneContents() {
       </group>;
     })}
     <DraftPolygon />
+    <SnapGuides />
     <SelectionTransform />
     <CameraController />
     <CaptureController />
@@ -127,6 +144,6 @@ export function PlannerCanvas() {
     <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }} onPointerMissed={(event) => { if (!event.shiftKey) select(null); }} shadows>
       <SceneContents />
     </Canvas>
-    <div className="canvas-hint"><kbd>ЛКМ</kbd> вращение · <kbd>стрелки</kbd> перемещение выбранного · <kbd>колесо</kbd> масштаб</div>
+    <div className="canvas-hint"><kbd>ЛКМ</kbd> вращение · <kbd>стрелки</kbd> перемещение · жёлтые линии умная привязка · <kbd>колесо</kbd> масштаб</div>
   </div>;
 }
