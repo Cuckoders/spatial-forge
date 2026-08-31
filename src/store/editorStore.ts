@@ -259,7 +259,9 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
             : { ...opening, wallIndex: opening.wallIndex + 1, offset: (opening.offset - 0.5) * 2 };
       const fitted = fitOpeningToRoom(remapped, updatedRoom); return fitted ? [fitted] : [];
     });
-    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item),
+    const selection = state.selection?.kind === 'vertex' && state.selection.roomId === id && state.selection.vertexIndex > afterIndex
+      ? { ...state.selection, vertexIndex: state.selection.vertexIndex + 1 } as Selection : state.selection;
+    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), selection,
       wallFinishes: remapRoomFinishes(state.wallFinishes, id, sourceWallIndices), openings, message: 'Новая вершина добавлена в середину стены' };
   }),
   removePolygonVertex: (id, index) => set((state) => {
@@ -282,7 +284,11 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       const wallIndex = sourceWallIndices.indexOf(opening.wallIndex); if (wallIndex < 0) return [];
       const fitted = fitOpeningToRoom({ ...opening, wallIndex }, updatedRoom); return fitted ? [fitted] : [];
     });
-    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item),
+    const selection = state.selection?.kind === 'vertex' && state.selection.roomId === id
+      ? state.selection.vertexIndex === index ? { kind: 'room', id } as Selection
+        : state.selection.vertexIndex > index ? { ...state.selection, vertexIndex: state.selection.vertexIndex - 1 } : state.selection
+      : state.selection;
+    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), selection,
       wallFinishes: remapRoomFinishes(state.wallFinishes, id, sourceWallIndices), openings,
       message: removedOpening ? 'Вершина и проёмы соседних стен удалены' : 'Вершина удалена' };
   }),
@@ -311,7 +317,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   removeRoom: (id) => set((state) => ({ rooms: state.rooms.filter((room) => room.id !== id),
     wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => !key.startsWith(`${id}:wall:`))),
     openings: state.openings.filter((opening) => opening.roomId !== id),
-    selection: state.selection?.kind === 'room' && state.selection.id === id || state.selection?.kind === 'wall' && state.selection.roomId === id ? null : state.selection })),
+    selection: state.selection?.kind === 'room' && state.selection.id === id || state.selection?.kind === 'vertex' && state.selection.roomId === id
+      || state.selection?.kind === 'wall' && state.selection.roomId === id ? null : state.selection })),
   setWallFinish: (roomId, wallIndex, finish) => set((state) => {
     const color = /^#[0-9a-f]{6}$/i.test(finish.color) ? finish.color : '#E7E1D7';
     const textureId = finish.textureId && state.textures.some((texture) => texture.id === finish.textureId) ? finish.textureId : undefined;
@@ -394,12 +401,13 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     message: 'Текстура удалена из библиотеки',
   })),
   addModelAsset: (asset) => set((state) => ({ modelAssets: [...state.modelAssets, asset], message: 'GLB-модель добавлена в библиотеку' })),
-  removeModelAsset: (id) => set((state) => ({
-    modelAssets: state.modelAssets.filter((asset) => asset.id !== id),
-    modelInstances: state.modelInstances.filter((model) => model.assetId !== id),
-    selection: state.selection?.kind === 'model' && state.modelInstances.some((model) => model.id === state.selection?.id && model.assetId === id) ? null : state.selection,
-    message: 'Модель и её экземпляры удалены',
-  })),
+  removeModelAsset: (id) => set((state) => {
+    const selectedModelId = state.selection?.kind === 'model' ? state.selection.id : undefined;
+    return { modelAssets: state.modelAssets.filter((asset) => asset.id !== id),
+      modelInstances: state.modelInstances.filter((model) => model.assetId !== id),
+      selection: selectedModelId && state.modelInstances.some((model) => model.id === selectedModelId && model.assetId === id) ? null : state.selection,
+      message: 'Модель и её экземпляры удалены' };
+  }),
   hydrateAssets: (textures, models) => {
     restoringHistory = true;
     set({ textures, modelAssets: models });
@@ -424,6 +432,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   deleteSelection: () => {
     const selection = get().selection;
     if (selection?.kind === 'room') get().removeRoom(selection.id);
+    else if (selection?.kind === 'vertex') get().removePolygonVertex(selection.roomId, selection.vertexIndex);
     else if (selection?.kind === 'model') get().removeModel(selection.id);
     else if (selection?.kind === 'wall') get().clearWallFinish(selection.roomId, selection.wallIndex);
   },

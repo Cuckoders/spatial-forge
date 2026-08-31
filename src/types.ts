@@ -77,6 +77,7 @@ export interface ModelInstance {
 
 export type Selection =
   | { kind: 'room'; id: string }
+  | { kind: 'vertex'; roomId: string; vertexIndex: number }
   | { kind: 'wall'; id: string; roomId: string; wallIndex: number }
   | { kind: 'model'; id: string };
 

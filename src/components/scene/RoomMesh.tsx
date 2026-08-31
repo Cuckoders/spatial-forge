@@ -91,7 +91,7 @@ function Wall({ room, wallIndex, start, end, active, selected }: { room: PlanRoo
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
   const opacity = active ? 1 : 0.15; const color = finish?.color ?? '#E9E4DA';
   const choose = (event: ThreeEvent<MouseEvent>) => {
-    if (!active) return;
+    if (!active || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'wall', id: wallId(room.id, wallIndex), roomId: room.id, wallIndex });
   };
   if (!opening) return <group onClick={choose} position={[(start[0] + end[0]) / 2, 0.12, (start[1] + end[1]) / 2]} rotation={[0, -angle, 0]}>
@@ -127,14 +127,14 @@ function ShapedFloor({ room, active, selected, onClick }: { room: PlanRoom; acti
   </mesh>;
 }
 
-function PolygonVertexHandles({ room }: { room: PlanRoom }) {
+function PolygonVertexHandles({ room, selectedIndex, onSelect }: { room: PlanRoom; selectedIndex: number | undefined; onSelect: (index: number) => void }) {
   if (room.shape !== 'polygon' || !room.vertices) return null;
-  return <group position={[0, 0.23, 0]}>{room.vertices.map((point, index) => <group key={index} position={[point[0], 0, point[1]]}>
-    <mesh raycast={() => undefined} renderOrder={20}>
-      <sphereGeometry args={[0.13, 16, 12]} />
-      <meshBasicMaterial color="#E8FF57" depthTest={false} />
+  return <group position={[0, room.wallHeight + 0.28, 0]}>{room.vertices.map((point, index) => <group key={index} position={[point[0], 0, point[1]]}>
+    <mesh onClick={(event) => { event.stopPropagation(); onSelect(index); }} renderOrder={20} scale={selectedIndex === index ? 1.35 : 1}>
+      <sphereGeometry args={[0.15, 16, 12]} />
+      <meshBasicMaterial color={selectedIndex === index ? '#FFFFFF' : '#E8FF57'} depthTest={false} />
     </mesh>
-    <Html center position={[0, 0.24, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[40, 0]}><span className="vertex-index-label">{index + 1}</span></Html>
+    <Html center position={[0, 0.24, 0]} zIndexRange={[40, 0]}><button aria-label={`Выбрать вершину ${index + 1}`} className="vertex-index-label" onClick={(event) => { event.stopPropagation(); onSelect(index); }} type="button">{index + 1}</button></Html>
   </group>)}</group>;
 }
 
@@ -143,9 +143,10 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
   const showDimensions = useEditorStore((state) => state.showDimensions);
   const select = useEditorStore((state) => state.select);
   const vertices = roomVertices(room);
-  const roomSelected = selection?.kind === 'room' && selection.id === room.id;
+  const roomSelected = selection?.kind === 'room' && selection.id === room.id || selection?.kind === 'vertex' && selection.roomId === room.id;
+  const selectedVertexIndex = selection?.kind === 'vertex' && selection.roomId === room.id ? selection.vertexIndex : undefined;
   const chooseRoom = (event: ThreeEvent<MouseEvent>) => {
-    if (!active) return;
+    if (!active || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'room', id: room.id });
   };
   return (
@@ -162,7 +163,7 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
         if (!end) return null;
         return <Wall key={wallId(room.id, index)} active={active} end={end} room={room} selected={selection?.kind === 'wall' && selection.roomId === room.id && selection.wallIndex === index} start={start} wallIndex={index} />;
       })}
-      {active && roomSelected ? <PolygonVertexHandles room={room} /> : null}
+      {active && roomSelected ? <PolygonVertexHandles onSelect={(vertexIndex) => select({ kind: 'vertex', roomId: room.id, vertexIndex })} room={room} selectedIndex={selectedVertexIndex} /> : null}
       {active && showDimensions ? <RoomMeasurements room={room} vertices={vertices} /> : null}
     </group>
   );
