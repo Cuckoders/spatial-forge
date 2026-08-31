@@ -69,6 +69,7 @@ export default function App() {
   const redo = useEditorStore((state) => state.redo);
   const toggleDimensions = useEditorStore((state) => state.toggleDimensions);
   const completePolygon = useEditorStore((state) => state.completePolygon);
+  const completeWallChain = useEditorStore((state) => state.completeWallChain);
   const cancelPolygon = useEditorStore((state) => state.cancelPolygon);
   const hydrateAssets = useEditorStore((state) => state.hydrateAssets);
 
@@ -88,7 +89,7 @@ export default function App() {
       else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
       else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelection(); }
       else if (event.key === 'Escape') { cancelPolygon(); select(null); }
-      else if (event.key === 'Enter') completePolygon();
+      else if (event.key === 'Enter') { completePolygon(); completeWallChain(); }
       else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'w') setTransformMode('translate');
       else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'e') setTransformMode('rotate');
       else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 's') setTransformMode('scale');
@@ -105,7 +106,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cancelPolygon, completePolygon, deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, setTransformMode, toggleDimensions, undo]);
+  }, [cancelPolygon, completePolygon, completeWallChain, deleteSelection, redo, rotateSelection, select, setCameraPreset, setTool, setTransformMode, toggleDimensions, undo]);
 
   useEffect(() => {
     if (!message) return;

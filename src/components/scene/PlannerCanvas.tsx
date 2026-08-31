@@ -277,7 +277,7 @@ export function PlannerCanvas() {
       <SceneContents selectionBoxRef={selectionBoxRef} />
     </Canvas>
     <div aria-hidden="true" className="selection-box" hidden ref={selectionBoxRef} />
-    <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> начало / конец стены · <kbd>Esc</kbd> отмена</>
+    <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> следующая точка · <kbd>Enter / Esc</kbd> завершить</>
       : cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</>
         : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
   </div>;
