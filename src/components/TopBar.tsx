@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from 'react';
-import { Box, Building2, Download, FolderOpen, Redo2, Rotate3D, Trees, Undo2 } from 'lucide-react';
+import { Box, Building2, Camera, Download, FolderOpen, Redo2, Rotate3D, Trees, Undo2 } from 'lucide-react';
 
 import { createProjectDocument, downloadProject, readProjectFile } from '../lib/files';
 import { useEditorStore } from '../store/editorStore';
@@ -50,6 +50,7 @@ export function TopBar() {
           <button disabled={!store.canRedo} onClick={store.redo} title="Повторить · Ctrl/Cmd+Shift+Z" type="button"><Redo2 size={16} /></button>
         </div>
         <button className="button ghost" onClick={() => inputRef.current?.click()} type="button"><FolderOpen size={16} /> Открыть</button>
+        <button className="button ghost" onClick={store.requestCapture} type="button"><Camera size={16} /> Снимок</button>
         <button className="button primary" onClick={exportProject} type="button"><Download size={16} /> Сохранить</button>
         <button className="icon-button" onClick={() => store.rotateSelection(15)} title="Повернуть выбранное на 15°" type="button"><Rotate3D size={18} /></button>
       </div>

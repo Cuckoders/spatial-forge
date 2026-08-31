@@ -130,10 +130,18 @@ export function readAutosave() {
 
 export function downloadProject(project: ProjectDocument) {
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, `${safeDownloadName(project.name)}.spatial.json`);
+}
+
+export function safeDownloadName(value: string) {
+  return value.replace(/[^A-Za-zА-Яа-я0-9_-]+/g, '-').slice(0, 60) || 'spatial-forge';
+}
+
+export function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.body.appendChild(document.createElement('a'));
   anchor.href = url;
-  anchor.download = `${project.name.replace(/[^A-Za-zА-Яа-я0-9_-]+/g, '-').slice(0, 60) || 'spatial-forge'}.spatial.json`;
+  anchor.download = fileName;
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);

@@ -24,6 +24,7 @@ interface EditorState {
   selection: Selection | null;
   cameraPreset: CameraPreset;
   cameraRevision: number;
+  captureRevision: number;
   message: string | null;
   canUndo: boolean;
   canRedo: boolean;
@@ -61,6 +62,7 @@ interface EditorState {
   deleteSelection: () => void;
   rotateSelection: (degrees: number) => void;
   setCameraPreset: (preset: CameraPreset) => void;
+  requestCapture: () => void;
   loadProject: (project: ProjectDocument) => void;
   resetProject: () => void;
   notify: (message: string | null) => void;
@@ -161,6 +163,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   selection: null,
   cameraPreset: 'perspective',
   cameraRevision: 0,
+  captureRevision: 0,
   message: null,
   canUndo: false,
   canRedo: false,
@@ -324,6 +327,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     if (selection?.kind === 'model') { const model = get().modelInstances.find((item) => item.id === selection.id); if (model) get().updateModel(model.id, { rotation: model.rotation + radians(degrees) }); }
   },
   setCameraPreset: (cameraPreset) => set((state) => ({ cameraPreset, cameraRevision: state.cameraRevision + 1 })),
+  requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
     floors: project.floors, rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
     activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', message: 'Планировка загружена' }),

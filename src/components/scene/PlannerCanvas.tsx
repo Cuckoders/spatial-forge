@@ -3,6 +3,7 @@ import { Grid, OrbitControls } from '@react-three/drei';
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber';
 import { MOUSE, TOUCH } from 'three';
 
+import { downloadBlob, safeDownloadName } from '../../lib/files';
 import { useEditorStore } from '../../store/editorStore';
 import { ModelMesh } from './ModelMesh';
 import { RoomMesh } from './RoomMesh';
@@ -27,6 +28,30 @@ function CameraController() {
   return <OrbitControls ref={controls} enableDamping enableRotate={tool === 'select'} makeDefault maxDistance={160} maxPolarAngle={Math.PI / 2.02}
     minDistance={2} minPolarAngle={0.02} mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }}
     screenSpacePanning touches={{ ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }} />;
+}
+
+function CaptureController() {
+  const { camera, gl, scene } = useThree();
+  const revision = useEditorStore((state) => state.captureRevision);
+  const projectName = useEditorStore((state) => state.projectName);
+  const activeFloorName = useEditorStore((state) => state.floors.find((floor) => floor.id === state.activeFloorId)?.name ?? 'этаж');
+  const notify = useEditorStore((state) => state.notify);
+
+  useEffect(() => {
+    if (revision === 0) return;
+    const frame = requestAnimationFrame(() => {
+      gl.render(scene, camera);
+      gl.domElement.toBlob((blob) => {
+        if (!blob) { notify('Не удалось создать PNG-снимок'); return; }
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+        downloadBlob(blob, `${safeDownloadName(`${projectName}-${activeFloorName}`)}-${timestamp}.png`);
+        notify('PNG-снимок сохранён');
+      }, 'image/png');
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeFloorName, camera, gl, notify, projectName, revision, scene]);
+
+  return null;
 }
 
 function SceneContents() {
@@ -68,6 +93,7 @@ function SceneContents() {
     })}
     <SelectionTransform />
     <CameraController />
+    <CaptureController />
   </>;
 }
 
@@ -75,7 +101,7 @@ export function PlannerCanvas() {
   const tool = useEditorStore((state) => state.tool);
   const select = useEditorStore((state) => state.select);
   return <div className={`canvas-shell tool-${tool}`}>
-    <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} gl={{ antialias: true, alpha: false }} onPointerMissed={() => select(null)} shadows>
+    <Canvas camera={{ fov: 42, near: 0.05, far: 500, position: [14, 11, 14] }} dpr={[1, 2]} gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }} onPointerMissed={() => select(null)} shadows>
       <SceneContents />
     </Canvas>
     <div className="canvas-hint"><kbd>ЛКМ</kbd> вращение · <kbd>стрелки</kbd> перемещение выбранного · <kbd>колесо</kbd> масштаб</div>
