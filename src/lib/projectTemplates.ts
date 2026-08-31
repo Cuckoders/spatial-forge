@@ -35,6 +35,7 @@ const familyHouse: ProjectDocument = {
     { id: 'demo-sofa', floorId: 'floor-1', assetId: 'builtin:sofa', name: 'Диван', x: -2.4, y: 0, z: -1.2, rotation: 0, scale: 1 },
     { id: 'demo-table', floorId: 'floor-1', assetId: 'builtin:table', name: 'Стол', x: 2.2, y: 0, z: -1.3, rotation: 0, scale: 1 },
   ],
+  utilities: [],
 };
 
 const compactApartment: ProjectDocument = {
@@ -58,6 +59,7 @@ const compactApartment: ProjectDocument = {
     { id: 'compact-bed', floorId: 'compact-floor', assetId: 'builtin:bed', name: 'Кровать', x: 2.25, y: 0, z: -1.5, rotation: Math.PI / 2, scale: 0.82 },
     { id: 'compact-table', floorId: 'compact-floor', assetId: 'builtin:table', name: 'Стол', x: -0.7, y: 0, z: -1.3, rotation: 0, scale: 0.75 },
   ],
+  utilities: [],
 };
 
 const gardenPlot: ProjectDocument = {
@@ -82,11 +84,12 @@ const gardenPlot: ProjectDocument = {
     { id: 'plot-tree-3', floorId: 'plot-floor', assetId: 'builtin:tree', name: 'Дерево', x: 7.5, y: 0, z: 7.5, rotation: 0.8, scale: 1.35 },
     { id: 'plot-table', floorId: 'plot-floor', assetId: 'builtin:table', name: 'Стол на террасе', x: 3, y: 0, z: -1.5, rotation: 0, scale: 0.9 },
   ],
+  utilities: [],
 };
 
 const blankProject: ProjectDocument = {
   version: 1, name: 'Новый проект', projectType: 'apartment', site: { width: 20, depth: 16 },
-  floors: [createPlanFloor('blank-floor', '1 этаж', 0)], rooms: [], walls: [], wallOpenings: [], wallFinishes: {}, openings: [], modelInstances: [],
+  floors: [createPlanFloor('blank-floor', '1 этаж', 0)], rooms: [], walls: [], wallOpenings: [], wallFinishes: {}, openings: [], modelInstances: [], utilities: [],
 };
 
 export const projectTemplates: ProjectTemplateInfo[] = [

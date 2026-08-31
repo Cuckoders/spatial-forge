@@ -112,7 +112,7 @@ export function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: P
   const selection = useEditorStore((state) => state.selection);
   const allOpenings = useEditorStore((state) => state.wallOpenings);
   const showDimensions = useEditorStore((state) => state.showDimensions);
-  const wallToolActive = useEditorStore((state) => state.tool === 'wall');
+  const selectionToolActive = useEditorStore((state) => state.tool === 'select');
   const select = useEditorStore((state) => state.select);
   const frontTextureUrl = useEditorStore((state) => wall.frontFinish?.textureId ? state.textures.find((texture) => texture.id === wall.frontFinish?.textureId)?.url : undefined);
   const backTextureUrl = useEditorStore((state) => wall.backFinish?.textureId ? state.textures.find((texture) => texture.id === wall.backFinish?.textureId)?.url : undefined);
@@ -122,7 +122,7 @@ export function StandaloneWallMesh({ wall, joins, elevation, active }: { wall: P
   const openings = useMemo(() => layoutOpenings(allOpenings.filter((item) => item.wallId === wall.id), length, wall.height),
     [allOpenings, length, wall.height, wall.id]);
   const choose = (event: ThreeEvent<MouseEvent>) => {
-    if (!active || wallToolActive || event.delta > 4) return;
+    if (!active || !selectionToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'partition', id: wall.id });
   };
   const wallStart = -length / 2;

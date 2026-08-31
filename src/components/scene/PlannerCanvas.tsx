@@ -5,6 +5,7 @@ import { MOUSE, TOUCH, Vector3, type Camera } from 'three';
 
 import { downloadBlob, safeDownloadName } from '../../lib/files';
 import { boundsForModel, boundsForRoom, type Bounds2D } from '../../lib/snapping';
+import { UTILITY_KINDS } from '../../lib/utilities';
 import { wallJoinOffsetsMap } from '../../lib/wallJoins';
 import { useEditorStore } from '../../store/editorStore';
 import type { ObjectSelection } from '../../types';
@@ -13,6 +14,7 @@ import { FloorStructures } from './FloorStructures';
 import { RoomMesh } from './RoomMesh';
 import { SelectionTransform } from './SelectionTransform';
 import { StandaloneWallMesh } from './StandaloneWallMesh';
+import { UtilityRouteMesh } from './UtilityRouteMesh';
 
 function CameraController() {
   const camera = useThree((state) => state.camera);
@@ -104,6 +106,25 @@ function DraftWall() {
   </group>;
 }
 
+function DraftUtility() {
+  const tool = useEditorStore((state) => state.tool);
+  const start = useEditorStore((state) => state.draftUtilityStart);
+  const end = useEditorStore((state) => state.draftUtilityEnd);
+  const kind = useEditorStore((state) => state.utilityKind);
+  const floorElevation = useEditorStore((state) => state.floors.find((floor) => floor.id === state.activeFloorId)?.elevation ?? 0);
+  if (tool !== 'utility' || !start || !end) return null;
+  const style = UTILITY_KINDS[kind];
+  const y = floorElevation + style.defaultElevation;
+  const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+  return <group>
+    {length > 0 ? <Line color={style.color} depthTest={false} lineWidth={6} points={[[start[0], y, start[1]], [end[0], y, end[1]]]} raycast={() => undefined} /> : null}
+    {[start, end].map((point, index) => <mesh key={index} position={[point[0], y, point[1]]} raycast={() => undefined}>
+      <sphereGeometry args={[index === 0 ? 0.13 : 0.1, 14, 10]} /><meshBasicMaterial color={index === 0 ? '#FFFFFF' : style.color} depthTest={false} />
+    </mesh>)}
+    {length > 0 ? <Html center position={[(start[0] + end[0]) / 2, y + 0.36, (start[1] + end[1]) / 2]} style={{ pointerEvents: 'none' }} zIndexRange={[44, 0]}><div className="utility-route-label"><b>{style.shortLabel}</b><span>{length.toFixed(2)} м</span></div></Html> : null}
+  </group>;
+}
+
 function WallPrecisionPanel() {
   const lengthInput = useRef<HTMLInputElement>(null);
   const tool = useEditorStore((state) => state.tool);
@@ -181,6 +202,8 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const rooms = useEditorStore((state) => state.rooms);
   const walls = useEditorStore((state) => state.walls);
   const models = useEditorStore((state) => state.modelInstances);
+  const utilities = useEditorStore((state) => state.utilities);
+  const utilityVisibility = useEditorStore((state) => state.utilityVisibility);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const showAllFloors = useEditorStore((state) => state.showAllFloors);
   const tool = useEditorStore((state) => state.tool);
@@ -191,6 +214,8 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const addPolygonPoint = useEditorStore((state) => state.addPolygonPoint);
   const addWallPoint = useEditorStore((state) => state.addWallPoint);
   const previewWall = useEditorStore((state) => state.previewWall);
+  const addUtilityPoint = useEditorStore((state) => state.addUtilityPoint);
+  const previewUtility = useEditorStore((state) => state.previewUtility);
   const completePolygon = useEditorStore((state) => state.completePolygon);
   const activeFloorElevation = floors.find((floor) => floor.id === activeFloorId)?.elevation ?? 0;
   const wallJoins = useMemo(() => wallJoinOffsetsMap(walls), [walls]);
@@ -256,10 +281,12 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
     if (tool === 'rectangle' || tool === 'triangle') { event.stopPropagation(); addRoomAt(tool, event.point.x, event.point.z); }
     else if (tool === 'polygon') { event.stopPropagation(); addPolygonPoint(event.point.x, event.point.z); }
     else if (tool === 'wall') { event.stopPropagation(); addWallPoint(event.point.x, event.point.z); }
+    else if (tool === 'utility') { event.stopPropagation(); addUtilityPoint(event.point.x, event.point.z); }
     else if (!event.shiftKey) select(null);
   };
   const onGroundPointerMove = (event: ThreeEvent<PointerEvent>) => {
     if (tool === 'wall') previewWall(event.point.x, event.point.z);
+    else if (tool === 'utility') previewUtility(event.point.x, event.point.z);
   };
   const onGroundDoubleClick = (event: ThreeEvent<MouseEvent>) => {
     if (tool !== 'polygon') return;
@@ -292,10 +319,12 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
         {walls.filter((wall) => wall.floorId === floor.id).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation}
           joins={wallJoins.get(wall.id)!} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
+        {utilities.filter((route) => route.floorId === floor.id && utilityVisibility[route.kind]).map((route) => <UtilityRouteMesh active={active} floorElevation={floor.elevation} key={route.id} route={route} />)}
       </group>;
     })}
     <DraftPolygon />
     <DraftWall />
+    <DraftUtility />
     <SnapGuides />
     <SelectionTransform />
     <CameraController />
@@ -315,6 +344,7 @@ export function PlannerCanvas() {
     <div aria-hidden="true" className="selection-box" hidden ref={selectionBoxRef} />
     <WallPrecisionPanel />
     <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> следующая точка · в полях <kbd>Enter</kbd> добавить · <kbd>Esc</kbd> завершить</>
+      : tool === 'utility' ? <><kbd>ЛКМ</kbd> следующая точка трассы · <kbd>Enter / Esc</kbd> завершить</>
       : cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</>
         : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
   </div>;

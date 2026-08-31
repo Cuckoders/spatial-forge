@@ -62,6 +62,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .tool-grid button.active { background: var(--ink); color: white; border-color: var(--ink); }
 .tool-grid button.active svg { color: var(--acid); }
 .panel-note { font-size: 10px; color: var(--muted); line-height: 1.55; margin: 10px 2px 0; }
+.utility-tools { display: grid; gap: 5px; }
+.utility-tool-row { display: grid; grid-template-columns: minmax(0,1fr) 34px; gap: 4px; }
+.utility-kind-button { min-width: 0; height: 39px; display: grid; grid-template-columns: 27px minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: white; text-align: left; cursor: pointer; }
+.utility-kind-button > span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: #eef0e8; }
+.utility-kind-button b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.utility-kind-button small { min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: #e8e9e3; color: var(--muted); font: 700 7px "DM Mono", monospace; }
+.utility-kind-button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.utility-kind-button.active > span { background: #343a36; }
+.utility-kind-button.active small { background: var(--acid); color: var(--ink); }
+.utility-visibility { height: 39px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #e4e6df; color: #969c96; cursor: pointer; }
+.utility-visibility.visible { background: white; color: var(--ink); }
 .asset-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .asset-grid button { height: 70px; border: 1px solid var(--line); background: #fff; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 10px; font-weight: 700; cursor: pointer; }
 .asset-grid button:hover, .upload-button:hover { border-color: #a6ad93; background: #f5f7e9; }
@@ -86,7 +97,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 
 .viewport { min-width: 0; position: relative; overflow: hidden; background: #d7dbd1; }
 .canvas-shell, .canvas-shell canvas { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
-.canvas-shell.tool-rectangle canvas, .canvas-shell.tool-triangle canvas, .canvas-shell.tool-polygon canvas { cursor: crosshair; }
+.canvas-shell.tool-rectangle canvas, .canvas-shell.tool-triangle canvas, .canvas-shell.tool-polygon canvas, .canvas-shell.tool-utility canvas { cursor: crosshair; }
 .canvas-shell.tool-select.camera-top canvas { cursor: crosshair; }
 .selection-box { position: absolute; z-index: 8; pointer-events: none; border: 1px solid #9caf20; background: rgba(232,255,87,.18); box-shadow: inset 0 0 0 1px rgba(255,255,255,.58), 0 2px 10px rgba(66,77,28,.14); }
 .wall-precision-panel { position: absolute; z-index: 9; left: 16px; bottom: 55px; width: 292px; padding: 11px; border: 1px solid rgba(255,255,255,.82); border-radius: 11px; background: rgba(247,247,242,.93); backdrop-filter: blur(14px); box-shadow: 0 10px 28px rgba(53,60,54,.16); }
@@ -143,6 +154,9 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .room-measure-label b { max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-size: 9px; }
 .room-measure-label span { color: var(--acid); font-family: "DM Mono", ui-monospace, monospace; font-size: 8px; }
 .wall-measure-label { padding: 3px 5px; background: rgba(247,245,239,.92); color: #343a35; border: 1px solid rgba(102,110,102,.4); border-radius: 5px; font-family: "DM Mono", ui-monospace, monospace; font-size: 7px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 8px rgba(44,50,44,.1); }
+.utility-route-label { min-width: 67px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 6px; border: 1px solid rgba(255,255,255,.65); border-radius: 999px; background: rgba(31,37,33,.93); color: white; box-shadow: 0 4px 12px rgba(24,29,25,.22); white-space: nowrap; }
+.utility-route-label b { color: var(--acid); font-size: 7px; text-transform: uppercase; letter-spacing: .05em; }
+.utility-route-label span { font: 700 7px "DM Mono", monospace; }
 .wall-side-label { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(32,37,34,.85); background: var(--acid); color: var(--ink); font: 800 9px "DM Mono", monospace; box-shadow: 0 3px 10px rgba(24,29,25,.25); }
 .wall-side-label.secondary { border-color: rgba(232,255,87,.8); background: var(--ink); color: var(--acid); }
 .wall-snap-label { padding: 4px 7px; background: rgba(32,37,34,.95); color: var(--acid); border: 1px solid rgba(232,255,87,.8); border-radius: 999px; font: 700 7px "DM Mono", ui-monospace, monospace; letter-spacing: .04em; white-space: nowrap; box-shadow: 0 3px 12px rgba(24,29,25,.24); }
@@ -233,6 +247,14 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 14px 16px; }
 .inspector-actions button { height: 37px; border: 1px solid var(--line); background: white; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 9px; font-weight: 700; cursor: pointer; }
 .inspector-actions button.danger { color: var(--danger); }
+.utility-kind-tabs { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; }
+.utility-kind-tabs button { min-width: 0; min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 0 5px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 7px; font-weight: 700; cursor: pointer; }
+.utility-kind-tabs button > span { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.utility-kind-tabs button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.utility-summary { min-height: 38px; display: grid; grid-template-columns: 9px minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: white; }
+.utility-summary > span { width: 9px; height: 9px; border-radius: 50%; }
+.utility-summary b { font-size: 8px; }
+.utility-summary small { color: var(--muted); font: 700 7px "DM Mono", monospace; }
 .shortcut-card { margin: 14px 16px; background: #e8e9e2; border-radius: 9px; padding: 12px; }
 .shortcut-card b { font-size: 9px; text-transform: uppercase; }
 .shortcut-card p { margin: 7px 0 0; font-size: 8px; color: var(--muted); }

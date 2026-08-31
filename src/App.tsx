@@ -48,11 +48,13 @@ function SceneStats() {
   const rooms = useEditorStore((state) => state.rooms);
   const walls = useEditorStore((state) => state.walls);
   const modelCount = useEditorStore((state) => state.modelInstances.length);
+  const utilities = useEditorStore((state) => state.utilities);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const floorRooms = rooms.filter((room) => room.floorId === activeFloorId);
   const area = floorRooms.reduce((total, room) => total + roomArea(room), 0);
   const wallCount = walls.filter((wall) => wall.floorId === activeFloorId).length;
-  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> {pluralizeStat(floorRooms.length, 'блок', 'блока', 'блоков')}</span><span><b>{wallCount}</b> {pluralizeStat(wallCount, 'стена', 'стены', 'стен')}</span><span><b>{modelCount}</b> {pluralizeStat(modelCount, 'объект', 'объекта', 'объектов')}</span></div>;
+  const utilityCount = utilities.filter((route) => route.floorId === activeFloorId).length;
+  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> {pluralizeStat(floorRooms.length, 'блок', 'блока', 'блоков')}</span><span><b>{wallCount}</b> {pluralizeStat(wallCount, 'стена', 'стены', 'стен')}</span><span><b>{utilityCount}</b> {pluralizeStat(utilityCount, 'трасса', 'трассы', 'трасс')}</span><span><b>{modelCount}</b> {pluralizeStat(modelCount, 'объект', 'объекта', 'объектов')}</span></div>;
 }
 
 function WelcomeBadge() {
@@ -67,6 +69,7 @@ export default function App() {
   const deleteSelection = useEditorStore((state) => state.deleteSelection);
   const select = useEditorStore((state) => state.select);
   const setTool = useEditorStore((state) => state.setTool);
+  const tool = useEditorStore((state) => state.tool);
   const rotateSelection = useEditorStore((state) => state.rotateSelection);
   const setCameraPreset = useEditorStore((state) => state.setCameraPreset);
   const setTransformMode = useEditorStore((state) => state.setTransformMode);
@@ -75,6 +78,7 @@ export default function App() {
   const toggleDimensions = useEditorStore((state) => state.toggleDimensions);
   const completePolygon = useEditorStore((state) => state.completePolygon);
   const completeWallChain = useEditorStore((state) => state.completeWallChain);
+  const completeUtilityChain = useEditorStore((state) => state.completeUtilityChain);
   const cancelPolygon = useEditorStore((state) => state.cancelPolygon);
   const hydrateAssets = useEditorStore((state) => state.hydrateAssets);
 
@@ -97,8 +101,12 @@ export default function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
       else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
       else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelection(); }
-      else if (event.key === 'Escape') { cancelPolygon(); select(null); }
-      else if (event.key === 'Enter') { completePolygon(); completeWallChain(); }
+      else if (event.key === 'Escape') {
+        if (tool === 'wall') completeWallChain();
+        else if (tool === 'utility') completeUtilityChain();
+        else { cancelPolygon(); select(null); }
+      }
+      else if (event.key === 'Enter') { completePolygon(); completeWallChain(); completeUtilityChain(); }
       else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'w') setTransformMode('translate');
       else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'e') setTransformMode('rotate');
       else if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 's') setTransformMode('scale');
@@ -107,6 +115,7 @@ export default function App() {
       else if (event.key.toLowerCase() === 't') setTool('triangle');
       else if (event.key.toLowerCase() === 'p') setTool('polygon');
       else if (event.key.toLowerCase() === 'l') setTool('wall');
+      else if (event.key.toLowerCase() === 'n') setTool('utility');
       else if (event.key.toLowerCase() === 'd') toggleDimensions();
       else if (event.key === ']') rotateSelection(15);
       else if (event.key === '1') setCameraPreset('perspective');
@@ -115,7 +124,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cancelPolygon, catalogOpen, completePolygon, completeWallChain, deleteSelection, estimateOpen, redo, rotateSelection, select, setCameraPreset, setTool, setTransformMode, toggleDimensions, undo]);
+  }, [cancelPolygon, catalogOpen, completePolygon, completeUtilityChain, completeWallChain, deleteSelection, estimateOpen, redo, rotateSelection, select, setCameraPreset, setTool, setTransformMode, toggleDimensions, tool, undo]);
 
   useEffect(() => {
     if (!message) return;

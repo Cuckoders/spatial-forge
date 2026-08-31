@@ -88,6 +88,7 @@ function Wall({ room, wallIndex, start, end, active, selected }: { room: PlanRoo
   const textureUrl = useEditorStore((state) => finish?.textureId ? state.textures.find((texture) => texture.id === finish.textureId)?.url : undefined);
   const allOpenings = useEditorStore((state) => state.openings);
   const select = useEditorStore((state) => state.select);
+  const selectionToolActive = useEditorStore((state) => state.tool === 'select');
   const dx = end[0] - start[0]; const dz = end[1] - start[1];
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
   const opacity = active ? 1 : 0.15; const color = finish?.color ?? '#E9E4DA';
@@ -101,7 +102,7 @@ function Wall({ room, wallIndex, start, end, active, selected }: { room: PlanRoo
     return spans;
   }, [length, openings]);
   const choose = (event: ThreeEvent<MouseEvent>) => {
-    if (!active || event.delta > 4) return;
+    if (!active || !selectionToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'wall', id: wallId(room.id, wallIndex), roomId: room.id, wallIndex });
   };
   return <group onClick={choose} position={[(start[0] + end[0]) / 2, 0.12, (start[1] + end[1]) / 2]} rotation={[0, -angle, 0]}>
@@ -146,12 +147,13 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
   const selection = useEditorStore((state) => state.selection);
   const showDimensions = useEditorStore((state) => state.showDimensions);
   const select = useEditorStore((state) => state.select);
+  const selectionToolActive = useEditorStore((state) => state.tool === 'select');
   const vertices = roomVertices(room);
   const selectedInGroup = selection?.kind === 'group' && selection.items.some((item) => item.kind === 'room' && item.id === room.id);
   const roomSelected = selection?.kind === 'room' && selection.id === room.id || selection?.kind === 'vertex' && selection.roomId === room.id || selectedInGroup;
   const selectedVertexIndex = selection?.kind === 'vertex' && selection.roomId === room.id ? selection.vertexIndex : undefined;
   const chooseRoom = (event: ThreeEvent<MouseEvent>) => {
-    if (!active || event.delta > 4) return;
+    if (!active || !selectionToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'room', id: room.id }, event.shiftKey);
   };
   return (

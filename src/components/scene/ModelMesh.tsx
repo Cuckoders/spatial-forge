@@ -54,10 +54,11 @@ export function ModelMesh({ model, elevation, active }: { model: ModelInstance; 
   const selection = useEditorStore((state) => state.selection);
   const assetUrl = useEditorStore((state) => state.modelAssets.find((asset) => asset.id === model.assetId)?.url);
   const select = useEditorStore((state) => state.select);
+  const selectionToolActive = useEditorStore((state) => state.tool === 'select');
   const selected = selection?.kind === 'model' && selection.id === model.id
     || selection?.kind === 'group' && selection.items.some((item) => item.kind === 'model' && item.id === model.id);
   const choose = (event: ThreeEvent<MouseEvent>) => {
-    if (!active || event.delta > 4) return;
+    if (!active || !selectionToolActive || event.delta > 4) return;
     event.stopPropagation(); select({ kind: 'model', id: model.id }, event.shiftKey);
   };
   const builtIn = model.assetId.startsWith('builtin:') ? model.assetId.slice(8) as BuiltInModelKind : undefined;

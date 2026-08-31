@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { BrickWall, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, House, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
+import { BrickWall, Cable, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, House, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
+import { UTILITY_KINDS, utilityLength } from '../lib/utilities';
 import { useEditorStore } from '../store/editorStore';
-import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, WallFinish, WallOpening } from '../types';
+import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, UtilityKind, WallFinish, WallOpening } from '../types';
 
 const wallPalette = ['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'];
 
 function NumericField({ label, ariaLabel, value, min, max, step = 0.1, unit, onChange }: { label: string; ariaLabel?: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (value: number) => void }) {
-  return <label className="field"><span>{label}</span><div><input aria-label={ariaLabel} max={max} min={min} onChange={(event) => onChange(event.target.valueAsNumber)} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
+  return <label className="field"><span>{label}</span><div><input aria-label={ariaLabel} max={max} min={min} onChange={(event) => {
+    const nextValue = event.target.valueAsNumber; if (Number.isFinite(nextValue)) onChange(nextValue);
+  }} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
 }
 
 function pluralize(count: number, one: string, few: string, many: string) {
@@ -164,6 +167,36 @@ function WallInspector({ roomId, wallIndex }: { roomId: string; wallIndex: numbe
   </>;
 }
 
+function UtilityInspector({ id }: { id: string }) {
+  const route = useEditorStore((state) => state.utilities.find((item) => item.id === id));
+  const updateUtility = useEditorStore((state) => state.updateUtility);
+  const duplicateUtility = useEditorStore((state) => state.duplicateUtility);
+  const removeUtility = useEditorStore((state) => state.removeUtility);
+  if (!route) return <EmptyInspector />;
+  const length = utilityLength(route);
+  const angle = Math.atan2(route.endZ - route.startZ, route.endX - route.startX);
+  const setLength = (nextLength: number) => updateUtility(route.id, {
+    endX: route.startX + Math.cos(angle) * nextLength,
+    endZ: route.startZ + Math.sin(angle) * nextLength,
+  });
+  return <>
+    <div className="inspector-head"><span className="selection-tag">Инженерная трасса</span><input aria-label="Название трассы" maxLength={80} onChange={(event) => updateUtility(route.id, { name: event.target.value })} value={route.name} /></div>
+    <section className="inspector-section"><div className="inspector-title"><span>Тип сети</span><Cable size={16} /></div>
+      <div aria-label="Тип инженерной сети" className="utility-kind-tabs" role="group">{(Object.keys(UTILITY_KINDS) as UtilityKind[]).map((kind) => <button aria-pressed={route.kind === kind} className={route.kind === kind ? 'active' : ''} key={kind} onClick={() => updateUtility(route.id, { kind })} type="button"><span style={{ background: UTILITY_KINDS[kind].color }} />{UTILITY_KINDS[kind].shortLabel}</button>)}</div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Опорные точки</span><Move3D size={16} /></div>
+      <div className="endpoint-label">Начало</div><div className="field-row"><NumericField label="X₁" max={200} min={-200} onChange={(startX) => updateUtility(route.id, { startX })} unit="м" value={route.startX} /><NumericField label="Z₁" max={200} min={-200} onChange={(startZ) => updateUtility(route.id, { startZ })} unit="м" value={route.startZ} /></div>
+      <div className="endpoint-label">Конец</div><div className="field-row"><NumericField label="X₂" max={200} min={-200} onChange={(endX) => updateUtility(route.id, { endX })} unit="м" value={route.endX} /><NumericField label="Z₂" max={200} min={-200} onChange={(endZ) => updateUtility(route.id, { endZ })} unit="м" value={route.endZ} /></div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Параметры трассы</span><Ruler size={16} /></div>
+      <NumericField ariaLabel="Длина трассы" label="Точная длина" max={200} min={0.1} onChange={setLength} step={0.05} unit="м" value={length} />
+      <div className="field-row"><NumericField ariaLabel="Высота трассы" label="Над уровнем этажа" max={12} min={0.01} onChange={(elevation) => updateUtility(route.id, { elevation })} step={0.01} unit="м" value={route.elevation} /><NumericField ariaLabel="Диаметр трассы" label="Диаметр" max={500} min={5} onChange={(diameter) => updateUtility(route.id, { diameter: diameter / 1000 })} step={1} unit="мм" value={route.diameter * 1000} /></div>
+      <div className="utility-summary"><span style={{ background: UTILITY_KINDS[route.kind].color }} /><b>{UTILITY_KINDS[route.kind].label}</b><small>{length.toFixed(2)} м · {(angle * 180 / Math.PI + 360) % 360 < 0.05 ? '0' : ((angle * 180 / Math.PI + 360) % 360).toFixed(1)}°</small></div>
+    </section>
+    <div className="inspector-actions"><button onClick={() => duplicateUtility(route.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeUtility(route.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
+  </>;
+}
+
 function BoxIcon() { return <span className="mini-swatch" />; }
 
 function ModelInspector({ id }: { id: string }) {
@@ -219,5 +252,5 @@ function ProjectClipboardPanel({ selection }: { selection: Selection | null }) {
 
 export function Inspector() {
   const selection = useEditorStore((state) => state.selection);
-  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
+  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'utility' ? <UtilityInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
 }

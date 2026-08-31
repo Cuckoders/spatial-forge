@@ -20,6 +20,7 @@ export function TopBar({ onOpenTemplates, onOpenEstimate }: { onOpenTemplates: (
       wallFinishes: store.wallFinishes,
       openings: store.openings,
       modelInstances: store.modelInstances,
+      utilities: store.utilities,
     }));
     store.notify('Файл проекта сохранён');
   };

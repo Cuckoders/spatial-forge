@@ -1,11 +1,12 @@
 export type ProjectType = 'apartment' | 'plot';
-export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon' | 'wall';
+export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon' | 'wall' | 'utility';
 export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type BuiltInModelKind = 'sofa' | 'table' | 'bed' | 'tree' | 'stairs';
 export type RoofType = 'flat' | 'gable';
 export type RoofRidgeDirection = 'x' | 'z';
+export type UtilityKind = 'electric' | 'water' | 'heating';
 
 export interface SnapGuide {
   axis: 'x' | 'z';
@@ -130,6 +131,19 @@ export interface ModelInstance {
   scale: number;
 }
 
+export interface PlanUtilityRoute {
+  id: string;
+  floorId: string;
+  name: string;
+  kind: UtilityKind;
+  startX: number;
+  startZ: number;
+  endX: number;
+  endZ: number;
+  elevation: number;
+  diameter: number;
+}
+
 export type ObjectSelection =
   | { kind: 'room'; id: string }
   | { kind: 'model'; id: string };
@@ -139,7 +153,8 @@ export type Selection =
   | { kind: 'group'; items: ObjectSelection[] }
   | { kind: 'vertex'; roomId: string; vertexIndex: number }
   | { kind: 'wall'; id: string; roomId: string; wallIndex: number }
-  | { kind: 'partition'; id: string };
+  | { kind: 'partition'; id: string }
+  | { kind: 'utility'; id: string };
 
 export interface ProjectDocument {
   version: 1;
@@ -153,4 +168,5 @@ export interface ProjectDocument {
   wallFinishes: Record<string, WallFinish>;
   openings: WallOpening[];
   modelInstances: ModelInstance[];
+  utilities: PlanUtilityRoute[];
 }

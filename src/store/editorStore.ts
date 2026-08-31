@@ -8,8 +8,9 @@ import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVert
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
 import { createProjectFromTemplate } from '../lib/projectTemplates';
+import { UTILITY_KINDS } from '../lib/utilities';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, WallFinish, WallOpening, WallSnapTarget } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityKind, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -24,6 +25,9 @@ interface EditorState {
   textures: TextureAsset[];
   modelAssets: ModelAsset[];
   modelInstances: ModelInstance[];
+  utilities: PlanUtilityRoute[];
+  utilityKind: UtilityKind;
+  utilityVisibility: Record<UtilityKind, boolean>;
   projectClipboard: ProjectClipboardSummary | null;
   activeFloorId: string;
   showAllFloors: boolean;
@@ -36,6 +40,9 @@ interface EditorState {
   draftWallSnap: WallSnapTarget | null;
   draftWallChain: { start: Point2; segmentCount: number } | null;
   draftWallPrecision: boolean;
+  draftUtilityStart: Point2 | null;
+  draftUtilityEnd: Point2 | null;
+  draftUtilitySegmentCount: number;
   selection: Selection | null;
   snapGuides: SnapGuide[];
   transformMode: TransformMode;
@@ -60,6 +67,14 @@ interface EditorState {
   setWallDraftPolar: (length: number, angleDegrees: number) => void;
   commitWallDraft: () => void;
   completeWallChain: () => void;
+  setUtilityKind: (kind: UtilityKind) => void;
+  toggleUtilityVisibility: (kind: UtilityKind) => void;
+  previewUtility: (x: number, z: number) => void;
+  addUtilityPoint: (x: number, z: number) => void;
+  completeUtilityChain: () => void;
+  updateUtility: (id: string, patch: Partial<PlanUtilityRoute>) => void;
+  duplicateUtility: (id: string) => void;
+  removeUtility: (id: string) => void;
   completePolygon: () => void;
   cancelPolygon: () => void;
   updatePolygonVertex: (id: string, index: number, patch: { x?: number; z?: number }) => void;
@@ -118,7 +133,7 @@ interface EditorState {
   endHistoryBatch: () => void;
 }
 
-type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'walls' | 'wallOpenings' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'activeFloorId' | 'showAllFloors'>;
+type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'walls' | 'wallOpenings' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'utilities' | 'activeFloorId' | 'showAllFloors'>;
 
 const historyPast: HistorySnapshot[] = [];
 const historyFuture: HistorySnapshot[] = [];
@@ -239,6 +254,12 @@ function normalizedModel(model: ModelInstance): ModelInstance {
     z: clamp(model.z, -200, 200), rotation: radians(normalizeDegrees(model.rotation * 180 / Math.PI)), scale: clamp(model.scale, 0.05, 20) };
 }
 
+function normalizedUtility(route: PlanUtilityRoute): PlanUtilityRoute {
+  return { ...route, name: cleanText(route.name, 80) || UTILITY_KINDS[route.kind].label, startX: clamp(route.startX, -200, 200),
+    startZ: clamp(route.startZ, -200, 200), endX: clamp(route.endX, -200, 200), endZ: clamp(route.endZ, -200, 200),
+    elevation: clamp(route.elevation, 0.01, 12), diameter: clamp(route.diameter, 0.005, 0.5) };
+}
+
 function fitOpeningToRoom(opening: WallOpening, room: PlanRoom): WallOpening | undefined {
   const vertices = roomVertices(room); const start = vertices[opening.wallIndex]; const end = vertices[(opening.wallIndex + 1) % vertices.length];
   if (!start || !end || room.wallHeight < 0.34) return undefined;
@@ -286,6 +307,9 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   textures: [],
   modelAssets: [],
   modelInstances: initialProject.modelInstances,
+  utilities: initialProject.utilities,
+  utilityKind: 'electric',
+  utilityVisibility: { electric: true, water: true, heating: true },
   projectClipboard: summarizeProjectClipboard(initialClipboard),
   activeFloorId: initialProject.floors[0]?.id ?? 'floor-1',
   showAllFloors: false,
@@ -298,6 +322,9 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   draftWallSnap: null,
   draftWallChain: null,
   draftWallPrecision: false,
+  draftUtilityStart: null,
+  draftUtilityEnd: null,
+  draftUtilitySegmentCount: 0,
   selection: null,
   snapGuides: [],
   transformMode: 'translate',
@@ -310,15 +337,18 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setProjectName: (name) => set({ projectName: cleanText(name, 80) || 'Новый проект' }),
   setProjectType: (projectType) => set({ projectType, selection: null, snapGuides: [] }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
-  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] }),
+  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+    draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] }),
   select: (selection, additive = false) => set((state) => {
-    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] };
+    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+      draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] };
     const currentItems = state.selection?.kind === 'group' ? state.selection.items
       : state.selection && isObjectSelection(state.selection) ? [state.selection] : [];
     const key = objectSelectionKey(selection);
     const exists = currentItems.some((item) => objectSelectionKey(item) === key);
     const items = exists ? currentItems.filter((item) => objectSelectionKey(item) !== key) : [...currentItems, selection];
-    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] };
+    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+      draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] };
   }),
   selectObjects: (selections, additive = false) => set((state) => {
     const currentItems = additive
@@ -326,10 +356,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       : [];
     const items = new Map(currentItems.map((item) => [objectSelectionKey(item), item]));
     for (const selection of selections) items.set(objectSelectionKey(selection), selection);
-    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] };
+    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+      draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] };
   }),
   setSnapGuides: (snapGuides) => set({ snapGuides }),
-  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] }),
+  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+    draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
@@ -412,6 +444,51 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       draftWallPrecision: false,
       message: segmentCount ? `Цепочка завершена · стен: ${segmentCount}` : 'Построение стены отменено' };
   }),
+  setUtilityKind: (utilityKind) => set({ utilityKind }),
+  toggleUtilityVisibility: (kind) => set((state) => ({ utilityVisibility: { ...state.utilityVisibility, [kind]: !state.utilityVisibility[kind] } })),
+  previewUtility: (x, z) => set((state) => state.tool === 'utility' && state.draftUtilityStart
+    ? { draftUtilityEnd: [snapToGrid(x), snapToGrid(z)] } : state),
+  addUtilityPoint: (x, z) => set((state) => {
+    if (state.tool !== 'utility') return state;
+    const point = [snapToGrid(x), snapToGrid(z)] as Point2;
+    if (!state.draftUtilityStart) return { draftUtilityStart: point, draftUtilityEnd: point, draftUtilitySegmentCount: 0,
+      message: `Начало трассы «${UTILITY_KINDS[state.utilityKind].label}» задано · укажите следующую точку` };
+    const length = Math.hypot(point[0] - state.draftUtilityStart[0], point[1] - state.draftUtilityStart[1]);
+    if (length < 0.1) return { draftUtilityEnd: point, message: 'Длина трассы должна быть не меньше 0,1 м' };
+    const id = newId('utility');
+    const count = state.utilities.filter((route) => route.floorId === state.activeFloorId && route.kind === state.utilityKind).length + 1;
+    const defaults = UTILITY_KINDS[state.utilityKind];
+    const route = normalizedUtility({ id, floorId: state.activeFloorId, name: `${defaults.label} ${count}`, kind: state.utilityKind,
+      startX: state.draftUtilityStart[0], startZ: state.draftUtilityStart[1], endX: point[0], endZ: point[1],
+      elevation: defaults.defaultElevation, diameter: defaults.defaultDiameter });
+    const segmentCount = state.draftUtilitySegmentCount + 1;
+    return { utilities: [...state.utilities, route], utilityVisibility: { ...state.utilityVisibility, [state.utilityKind]: true },
+      selection: null, draftUtilityStart: point, draftUtilityEnd: point, draftUtilitySegmentCount: segmentCount,
+      message: `Сегмент ${segmentCount} создан · ${length.toFixed(2)} м · продолжайте трассу` };
+  }),
+  completeUtilityChain: () => set((state) => {
+    if (state.tool !== 'utility') return state;
+    const lastRoute = state.draftUtilitySegmentCount ? state.utilities.at(-1) : undefined;
+    return { tool: 'select', selection: lastRoute ? { kind: 'utility', id: lastRoute.id } : null,
+      draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0,
+      message: lastRoute ? `Трасса завершена · сегментов: ${state.draftUtilitySegmentCount}` : 'Прокладка трассы отменена' };
+  }),
+  updateUtility: (id, patch) => set((state) => {
+    const source = state.utilities.find((route) => route.id === id); if (!source) return state;
+    const kind = patch.kind && ['electric', 'water', 'heating'].includes(patch.kind) ? patch.kind : source.kind;
+    const route = normalizedUtility({ ...source, ...patch, id: source.id, floorId: source.floorId, kind });
+    if (Math.hypot(route.endX - route.startX, route.endZ - route.startZ) < 0.1) return { message: 'Длина трассы должна быть не меньше 0,1 м' };
+    return { utilities: state.utilities.map((item) => item.id === id ? route : item),
+      utilityVisibility: { ...state.utilityVisibility, [kind]: true } };
+  }),
+  duplicateUtility: (id) => set((state) => {
+    const source = state.utilities.find((route) => route.id === id); if (!source) return state;
+    const copy = { ...source, id: newId('utility'), name: `${source.name} — копия`.slice(0, 80), startX: source.startX + 0.5,
+      startZ: source.startZ + 0.5, endX: source.endX + 0.5, endZ: source.endZ + 0.5 };
+    return { utilities: [...state.utilities, copy], selection: { kind: 'utility', id: copy.id }, message: 'Трасса скопирована' };
+  }),
+  removeUtility: (id) => set((state) => ({ utilities: state.utilities.filter((route) => route.id !== id),
+    selection: state.selection?.kind === 'utility' && state.selection.id === id ? null : state.selection, message: 'Трасса удалена' })),
   completePolygon: () => set((state) => {
     if (state.tool !== 'polygon') return state;
     const points = state.draftPolygon;
@@ -716,9 +793,11 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const wallOpenings = state.wallOpenings.flatMap((opening) => {
       const wallId = wallIds.get(opening.wallId); return wallId ? [{ ...opening, id: newId('wall-opening'), wallId }] : [];
     });
+    const utilities = state.utilities.filter((route) => route.floorId === sourceFloor.id)
+      .map((route) => ({ ...route, id: newId('utility'), floorId: floor.id }));
     return { floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], openings: [...state.openings, ...openings],
       walls: [...state.walls, ...walls], wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes,
-      modelInstances: [...state.modelInstances, ...models], activeFloorId: floor.id, selection: null,
+      modelInstances: [...state.modelInstances, ...models], utilities: [...state.utilities, ...utilities], activeFloorId: floor.id, selection: null,
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
   copyActiveFloorToClipboard: () => {
@@ -730,7 +809,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const clipboard = { version: 1 as const, kind: 'floor' as const, label: floor.name, copiedAt: Date.now(),
       project: createProjectDocument({ name: `Буфер — ${floor.name}`.slice(0, 80), projectType: state.projectType, site: state.site, floors: [floor], rooms, walls,
         wallOpenings: state.wallOpenings.filter((opening) => wallIds.has(opening.wallId)), wallFinishes,
-        openings: state.openings.filter((opening) => roomIds.has(opening.roomId)), modelInstances: state.modelInstances.filter((model) => model.floorId === floor.id) }) };
+        openings: state.openings.filter((opening) => roomIds.has(opening.roomId)), modelInstances: state.modelInstances.filter((model) => model.floorId === floor.id),
+        utilities: state.utilities.filter((route) => route.floorId === floor.id) }) };
     if (!writeProjectClipboard(clipboard)) { set({ message: 'Не удалось сохранить этаж в локальный буфер' }); return; }
     set({ projectClipboard: summarizeProjectClipboard(clipboard), message: `«${floor.name}» скопирован для переноса между проектами` });
   },
@@ -741,7 +821,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const incoming = clipboard.project;
     if (state.rooms.length + incoming.rooms.length > 500 || state.walls.length + incoming.walls.length > 1_000
       || state.wallOpenings.length + incoming.wallOpenings.length > 1_000 || state.openings.length + incoming.openings.length > 1_000
-      || state.modelInstances.length + incoming.modelInstances.length > 200
+      || state.modelInstances.length + incoming.modelInstances.length > 200 || state.utilities.length + incoming.utilities.length > 2_000
       || Object.keys(state.wallFinishes).length + Object.keys(incoming.wallFinishes).length > 2_000) {
       set({ message: 'Вставка превысит допустимый размер проекта' }); return;
     }
@@ -784,13 +864,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       }
     }
     const modelInstances = clipboard.project.modelInstances.map((model) => ({ ...model, id: newId('object'), floorId: floor.id }));
+    const utilities = clipboard.project.utilities.map((route) => ({ ...route, id: newId('utility'), floorId: floor.id }));
     set({ floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], walls: [...state.walls, ...walls],
       wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes, openings: [...state.openings, ...openings],
-      modelInstances: [...state.modelInstances, ...modelInstances], activeFloorId: floor.id, showAllFloors: false, selection: null,
+      modelInstances: [...state.modelInstances, ...modelInstances], utilities: [...state.utilities, ...utilities], activeFloorId: floor.id, showAllFloors: false, selection: null,
       projectClipboard: summarizeProjectClipboard(clipboard), message: `Этаж «${sourceFloor.name}» вставлен вместе с содержимым` });
   },
   setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId)
-    ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] } : state),
+    ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+      draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, tool: 'select', snapGuides: [] } : state),
   removeActiveFloor: () => set((state) => {
     if (state.floors.length === 1) return { message: 'В проекте должен остаться хотя бы один этаж' };
     const remaining = state.floors.filter((floor) => floor.id !== state.activeFloorId);
@@ -800,7 +882,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       wallOpenings: state.wallOpenings.filter((opening) => !removedWallIds.has(opening.wallId)),
       wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => ![...removedRoomIds].some((id) => key.startsWith(`${id}:wall:`)))),
       openings: state.openings.filter((opening) => !removedRoomIds.has(opening.roomId)),
-      modelInstances: state.modelInstances.filter((model) => model.floorId !== state.activeFloorId), activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
+      modelInstances: state.modelInstances.filter((model) => model.floorId !== state.activeFloorId),
+      utilities: state.utilities.filter((route) => route.floorId !== state.activeFloorId), activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
   }),
   toggleAllFloors: () => set((state) => ({ showAllFloors: !state.showAllFloors })),
   toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
@@ -931,6 +1014,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     else if (selection?.kind === 'vertex') get().removePolygonVertex(selection.roomId, selection.vertexIndex);
     else if (selection?.kind === 'model') get().removeModel(selection.id);
     else if (selection?.kind === 'partition') get().removeWall(selection.id);
+    else if (selection?.kind === 'utility') get().removeUtility(selection.id);
     else if (selection?.kind === 'wall') get().clearWallFinish(selection.roomId, selection.wallIndex);
     else if (selection?.kind === 'group') set((state) => {
       const roomIds = new Set(selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
@@ -951,13 +1035,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setCameraPreset: (cameraPreset) => set((state) => ({ cameraPreset, cameraRevision: state.cameraRevision + 1 })),
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
-    floors: project.floors, rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Планировка загружена' }),
+    floors: project.floors, rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities,
+    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+    draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
-      rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Демо-проект восстановлен' });
+      rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities,
+      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+      draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
   undo: () => undoHistory(),
@@ -970,14 +1056,14 @@ function captureHistory(state: EditorState): HistorySnapshot {
   return {
     projectName: state.projectName, projectType: state.projectType, site: state.site, floors: state.floors,
     rooms: state.rooms, walls: state.walls, wallOpenings: state.wallOpenings, wallFinishes: state.wallFinishes, openings: state.openings, textures: state.textures, modelAssets: state.modelAssets,
-    modelInstances: state.modelInstances, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
+    modelInstances: state.modelInstances, utilities: state.utilities, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
   };
 }
 
 function sameHistory(left: HistorySnapshot, right: HistorySnapshot) {
   return left.projectName === right.projectName && left.projectType === right.projectType && left.site === right.site
     && left.floors === right.floors && left.rooms === right.rooms && left.walls === right.walls && left.wallOpenings === right.wallOpenings && left.wallFinishes === right.wallFinishes && left.openings === right.openings
-    && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances
+    && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances && left.utilities === right.utilities
     && left.activeFloorId === right.activeFloorId && left.showAllFloors === right.showAllFloors;
 }
 
@@ -1008,7 +1094,8 @@ function undoHistory() {
   if (!previous) return;
   historyFuture.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
+  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+    draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
 }
 
 function redoHistory() {
@@ -1017,13 +1104,14 @@ function redoHistory() {
   if (!next) return;
   historyPast.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
+  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
+    draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
 }
 
 lastHistorySnapshot = captureHistory(useEditorStore.getState());
 
 useEditorStore.subscribe(
-  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.activeFloorId, state.showAllFloors] as const,
+  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.utilities, state.activeFloorId, state.showAllFloors] as const,
   () => {
     const current = captureHistory(useEditorStore.getState());
     if (restoringHistory) { restoringHistory = false; lastHistorySnapshot = current; return; }
@@ -1040,10 +1128,10 @@ useEditorStore.subscribe(
 if (typeof window !== 'undefined') {
   let saveTimer: number | undefined;
   useEditorStore.subscribe(
-    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.modelInstances] as const,
-    ([name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances]) => {
+    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.modelInstances, state.utilities] as const,
+    ([name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities]) => {
       window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances })), 180);
+      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities })), 180);
     },
     { equalityFn: shallow },
   );
