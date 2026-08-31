@@ -51,9 +51,13 @@ function RoomInspector({ id, selectedVertexIndex }: { id: string; selectedVertex
 
 function PartitionInspector({ id }: { id: string }) {
   const wall = useEditorStore((state) => state.walls.find((item) => item.id === id));
+  const opening = useEditorStore((state) => state.wallOpenings.find((item) => item.wallId === id));
   const updateWall = useEditorStore((state) => state.updateWall);
   const duplicateWall = useEditorStore((state) => state.duplicateWall);
   const removeWall = useEditorStore((state) => state.removeWall);
+  const addOpening = useEditorStore((state) => state.addStandaloneWallOpening);
+  const updateOpening = useEditorStore((state) => state.updateStandaloneWallOpening);
+  const removeOpening = useEditorStore((state) => state.removeStandaloneWallOpening);
   if (!wall) return <EmptyInspector />;
   const dx = wall.endX - wall.startX; const dz = wall.endZ - wall.startZ;
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
@@ -67,6 +71,10 @@ function PartitionInspector({ id }: { id: string }) {
       <p className="vertex-note">Координаты начала и конца задаются в метрах относительно центра проекта.</p>
       <div className="endpoint-label">Начало</div><div className="field-row"><NumericField label="X₁" max={200} min={-200} onChange={(startX) => updateWall(wall.id, { startX })} unit="м" value={wall.startX} /><NumericField label="Z₁" max={200} min={-200} onChange={(startZ) => updateWall(wall.id, { startZ })} unit="м" value={wall.startZ} /></div>
       <div className="endpoint-label">Конец</div><div className="field-row"><NumericField label="X₂" max={200} min={-200} onChange={(endX) => updateWall(wall.id, { endX })} unit="м" value={wall.endX} /><NumericField label="Z₂" max={200} min={-200} onChange={(endZ) => updateWall(wall.id, { endZ })} unit="м" value={wall.endZ} /></div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Дверь или окно</span>{opening?.kind === 'door' ? <DoorOpen size={16} /> : <PanelTop size={16} />}</div>
+      <div className="opening-choices"><button className={opening?.kind === 'door' ? 'active' : ''} onClick={() => addOpening(wall.id, 'door')} type="button"><DoorOpen size={17} /> Дверь</button><button className={opening?.kind === 'window' ? 'active' : ''} onClick={() => addOpening(wall.id, 'window')} type="button"><PanelTop size={17} /> Окно</button></div>
+      {opening ? <div className="opening-fields"><div className="field-row"><NumericField label="Положение" max={98} min={2} onChange={(offset) => updateOpening(opening.id, { offset: offset / 100 })} step={1} unit="%" value={opening.offset * 100} /><NumericField label="Ширина" max={5} min={0.25} onChange={(width) => updateOpening(opening.id, { width })} unit="м" value={opening.width} /></div><div className="field-row"><NumericField label="Высота" max={4} min={0.3} onChange={(height) => updateOpening(opening.id, { height })} unit="м" value={opening.height} />{opening.kind === 'window' ? <NumericField label="Подоконник" max={3} min={0} onChange={(sillHeight) => updateOpening(opening.id, { sillHeight })} unit="м" value={opening.sillHeight} /> : <div />}</div><button className="remove-opening" onClick={() => removeOpening(opening.id)} type="button"><Trash2 size={14} /> Удалить проём</button></div> : <p className="empty-materials">Добавьте один проём. Геометрия стены автоматически разделится вокруг него.</p>}
     </section>
     <section className="inspector-section"><div className="inspector-title"><span>Размеры стены</span><BrickWall size={16} /></div>
       <NumericField label="Точная длина" max={100} min={0.25} onChange={setLength} step={0.05} unit="м" value={length} />

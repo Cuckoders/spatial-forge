@@ -67,6 +67,16 @@ export interface WallOpening {
   sillHeight: number;
 }
 
+export interface StandaloneWallOpening {
+  id: string;
+  wallId: string;
+  kind: 'door' | 'window';
+  offset: number;
+  width: number;
+  height: number;
+  sillHeight: number;
+}
+
 export interface TextureAsset {
   id: string;
   name: string;
@@ -114,6 +124,7 @@ export interface ProjectDocument {
   floors: PlanFloor[];
   rooms: PlanRoom[];
   walls: PlanWall[];
+  wallOpenings: StandaloneWallOpening[];
   wallFinishes: Record<string, WallFinish>;
   openings: WallOpening[];
   modelInstances: ModelInstance[];

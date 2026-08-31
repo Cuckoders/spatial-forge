@@ -1,5 +1,5 @@
 import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geometry';
-import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
 export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024;
@@ -91,11 +91,25 @@ function readOpening(value: unknown, roomsById: Map<string, PlanRoom>): WallOpen
     offset: value.offset, width: value.width, height: value.height, sillHeight: value.sillHeight };
 }
 
+function readStandaloneOpening(value: unknown, wallsById: Map<string, PlanWall>): StandaloneWallOpening | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.wallId !== 'string'
+    || !wallsById.has(value.wallId) || !['door', 'window'].includes(String(value.kind)) || !finite(value.offset, 0.02, 0.98)
+    || !finite(value.width, 0.25, 5) || !finite(value.height, 0.3, 4) || !finite(value.sillHeight, 0, 3)) return undefined;
+  const wall = wallsById.get(value.wallId); if (!wall) return undefined;
+  const length = Math.hypot(wall.endX - wall.startX, wall.endZ - wall.startZ);
+  const halfOpening = value.width / length / 2;
+  if (value.width > length - 0.12 || value.offset < halfOpening || value.offset > 1 - halfOpening
+    || value.sillHeight + value.height > wall.height - 0.04 || value.kind === 'door' && value.sillHeight !== 0) return undefined;
+  return { id: value.id, wallId: value.wallId, kind: value.kind as StandaloneWallOpening['kind'], offset: value.offset,
+    width: value.width, height: value.height, sillHeight: value.sillHeight };
+}
+
 export function parseProjectDocument(value: unknown): ProjectDocument {
   if (!isRecord(value) || value.version !== 1 || !['apartment', 'plot'].includes(String(value.projectType)) || !isRecord(value.site)
     || !finite(value.site.width, 4, 200) || !finite(value.site.depth, 4, 200) || !Array.isArray(value.floors)
     || value.floors.length < 1 || value.floors.length > 12 || !Array.isArray(value.rooms) || value.rooms.length > 500
     || (value.walls !== undefined && !Array.isArray(value.walls)) || (Array.isArray(value.walls) && value.walls.length > 1_000)
+    || (value.wallOpenings !== undefined && !Array.isArray(value.wallOpenings)) || (Array.isArray(value.wallOpenings) && value.wallOpenings.length > 1_000)
     || !isRecord(value.wallFinishes) || Object.keys(value.wallFinishes).length > 2_000 || (value.openings !== undefined && !Array.isArray(value.openings))
     || (Array.isArray(value.openings) && value.openings.length > 1_000) || !Array.isArray(value.modelInstances)
     || value.modelInstances.length > 200) throw new Error('Файл планировки имеет неподдерживаемую структуру.');
@@ -114,6 +128,12 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (walls.some((wall) => !wall)) throw new Error('В файле есть некорректная самостоятельная стена.');
   const validWalls = walls as PlanWall[];
   if (new Set(validWalls.map((wall) => wall.id)).size !== validWalls.length) throw new Error('Идентификаторы стен повторяются.');
+  const wallsById = new Map(validWalls.map((wall) => [wall.id, wall]));
+  const wallOpenings = (Array.isArray(value.wallOpenings) ? value.wallOpenings : []).map((opening) => readStandaloneOpening(opening, wallsById));
+  if (wallOpenings.some((opening) => !opening)) throw new Error('В файле есть некорректный проём самостоятельной стены.');
+  const validWallOpenings = wallOpenings as StandaloneWallOpening[];
+  if (new Set(validWallOpenings.map((opening) => opening.id)).size !== validWallOpenings.length
+    || new Set(validWallOpenings.map((opening) => opening.wallId)).size !== validWallOpenings.length) throw new Error('Проёмы самостоятельных стен повторяются.');
   const roomsById = new Map(validRooms.map((room) => [room.id, room]));
   const openings = (Array.isArray(value.openings) ? value.openings : []).map((opening) => readOpening(opening, roomsById));
   if (openings.some((opening) => !opening)) throw new Error('В файле есть некорректный дверной или оконный проём.');
@@ -131,16 +151,16 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   const models = value.modelInstances.map((model) => readModel(model, floorIds));
   if (models.some((model) => !model)) throw new Error('В файле есть некорректный объект.');
   return { version: 1, name, projectType: value.projectType as ProjectType,
-    site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms, walls: validWalls,
+    site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms, walls: validWalls, wallOpenings: validWallOpenings,
     wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[] };
 }
 
 const wallIdForOpening = (opening: Pick<WallOpening, 'roomId' | 'wallIndex'>) => `${opening.roomId}:wall:${opening.wallIndex}`;
 
-export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; walls: PlanWall[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[] }): ProjectDocument {
+export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; walls: PlanWall[]; wallOpenings: StandaloneWallOpening[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[] }): ProjectDocument {
   const wallFinishes = Object.fromEntries(Object.entries(input.wallFinishes).map(([id, finish]) => [id, { color: finish.color, ...(finish.textureId && uuidPattern.test(finish.textureId) ? { textureId: finish.textureId } : {}) }]));
   return { version: 1, name: input.name, projectType: input.projectType, site: input.site, floors: input.floors,
-    rooms: input.rooms, walls: input.walls, wallFinishes, openings: input.openings, modelInstances: input.modelInstances };
+    rooms: input.rooms, walls: input.walls, wallOpenings: input.wallOpenings, wallFinishes, openings: input.openings, modelInstances: input.modelInstances };
 }
 
 export function saveAutosave(document: ProjectDocument) {
