@@ -127,6 +127,17 @@ function ShapedFloor({ room, active, selected, onClick }: { room: PlanRoom; acti
   </mesh>;
 }
 
+function PolygonVertexHandles({ room }: { room: PlanRoom }) {
+  if (room.shape !== 'polygon' || !room.vertices) return null;
+  return <group position={[0, 0.23, 0]}>{room.vertices.map((point, index) => <group key={index} position={[point[0], 0, point[1]]}>
+    <mesh raycast={() => undefined} renderOrder={20}>
+      <sphereGeometry args={[0.13, 16, 12]} />
+      <meshBasicMaterial color="#E8FF57" depthTest={false} />
+    </mesh>
+    <Html center position={[0, 0.24, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[40, 0]}><span className="vertex-index-label">{index + 1}</span></Html>
+  </group>)}</group>;
+}
+
 export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
   const selection = useEditorStore((state) => state.selection);
   const showDimensions = useEditorStore((state) => state.showDimensions);
@@ -151,6 +162,7 @@ export function RoomMesh({ room, elevation, active }: RoomMeshProps) {
         if (!end) return null;
         return <Wall key={wallId(room.id, index)} active={active} end={end} room={room} selected={selection?.kind === 'wall' && selection.roomId === room.id && selection.wallIndex === index} start={start} wallIndex={index} />;
       })}
+      {active && roomSelected ? <PolygonVertexHandles room={room} /> : null}
       {active && showDimensions ? <RoomMeasurements room={room} vertices={vertices} /> : null}
     </group>
   );

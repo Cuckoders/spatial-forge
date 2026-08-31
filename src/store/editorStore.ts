@@ -38,6 +38,7 @@ interface EditorState {
   addPolygonPoint: (x: number, z: number) => void;
   completePolygon: () => void;
   cancelPolygon: () => void;
+  updatePolygonVertex: (id: string, index: number, patch: { x?: number; z?: number }) => void;
   updateRoom: (id: string, patch: Partial<PlanRoom>) => void;
   duplicateRoom: (id: string) => void;
   removeRoom: (id: string) => void;
@@ -211,6 +212,24 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     return { rooms: [...state.rooms, room], selection: { kind: 'room', id }, tool: 'select', draftPolygon: [], message: 'Произвольный контур создан' };
   }),
   cancelPolygon: () => set((state) => ({ draftPolygon: [], tool: 'select', ...(state.draftPolygon.length ? { message: 'Построение контура отменено' } : {}) })),
+  updatePolygonVertex: (id, index, patch) => set((state) => {
+    const room = state.rooms.find((item) => item.id === id);
+    if (!room || room.shape !== 'polygon' || !room.vertices?.[index]
+      || patch.x !== undefined && !Number.isFinite(patch.x) || patch.z !== undefined && !Number.isFinite(patch.z)) return state;
+    const vertices = room.vertices.map((point, pointIndex) => pointIndex === index
+      ? [clamp(patch.x ?? point[0], -50, 50), clamp(patch.z ?? point[1], -50, 50)] as [number, number]
+      : point);
+    if (!isSimplePolygon(vertices)) return { message: 'Такое положение создаёт пересечение стен' };
+    if (polygonArea(vertices) < 0.25) return { message: 'Площадь контура должна быть не меньше 0,25 м²' };
+    const bounds = polygonBounds(vertices);
+    if (bounds.width < 0.5 || bounds.depth < 0.5 || bounds.width > 50 || bounds.depth > 50) return { message: 'Габариты контура должны быть от 0,5 до 50 м' };
+    const updatedRoom = { ...room, vertices, width: bounds.width, depth: bounds.depth };
+    const openings = state.openings.flatMap((opening) => {
+      if (opening.roomId !== id) return [opening];
+      const fitted = fitOpeningToRoom(opening, updatedRoom); return fitted ? [fitted] : [];
+    });
+    return { rooms: state.rooms.map((item) => item.id === id ? updatedRoom : item), openings };
+  }),
   updateRoom: (id, patch) => set((state) => {
     let updatedRoom: PlanRoom | undefined;
     const rooms = state.rooms.map((room) => {
