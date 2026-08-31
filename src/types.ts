@@ -53,6 +53,8 @@ export interface PlanWall {
   height: number;
   thickness: number;
   color: string;
+  frontFinish?: WallFinish;
+  backFinish?: WallFinish;
 }
 
 export interface WallFinish {

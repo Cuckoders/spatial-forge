@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { BrickWall, Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
-import type { ObjectSelection, StandaloneWallOpening, WallOpening } from '../types';
+import type { ObjectSelection, StandaloneWallOpening, WallFinish, WallOpening } from '../types';
+
+const wallPalette = ['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'];
 
 function NumericField({ label, ariaLabel, value, min, max, step = 0.1, unit, onChange }: { label: string; ariaLabel?: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (value: number) => void }) {
   return <label className="field"><span>{label}</span><div><input aria-label={ariaLabel} max={max} min={min} onChange={(event) => onChange(event.target.valueAsNumber)} step={step} type="number" value={Number.isFinite(value) ? Number(value.toFixed(3)) : 0} />{unit ? <small>{unit}</small> : null}</div></label>;
@@ -70,10 +73,14 @@ function RoomInspector({ id, selectedVertexIndex }: { id: string; selectedVertex
 }
 
 function PartitionInspector({ id }: { id: string }) {
+  const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
   const wall = useEditorStore((state) => state.walls.find((item) => item.id === id));
   const wallOpenings = useEditorStore((state) => state.wallOpenings);
   const openings = wallOpenings.filter((item) => item.wallId === id);
   const updateWall = useEditorStore((state) => state.updateWall);
+  const textures = useEditorStore((state) => state.textures);
+  const setStandaloneWallFinish = useEditorStore((state) => state.setStandaloneWallFinish);
+  const clearStandaloneWallFinish = useEditorStore((state) => state.clearStandaloneWallFinish);
   const duplicateWall = useEditorStore((state) => state.duplicateWall);
   const removeWall = useEditorStore((state) => state.removeWall);
   const addOpening = useEditorStore((state) => state.addStandaloneWallOpening);
@@ -82,6 +89,7 @@ function PartitionInspector({ id }: { id: string }) {
   if (!wall) return <EmptyInspector />;
   const dx = wall.endX - wall.startX; const dz = wall.endZ - wall.startZ;
   const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
+  const finish: WallFinish = (activeSide === 'front' ? wall.frontFinish : wall.backFinish) ?? { color: wall.color };
   const setLength = (nextLength: number) => updateWall(wall.id, {
     endX: wall.startX + Math.cos(angle) * nextLength,
     endZ: wall.startZ + Math.sin(angle) * nextLength,
@@ -98,7 +106,16 @@ function PartitionInspector({ id }: { id: string }) {
       <NumericField label="Точная длина" max={100} min={0.25} onChange={setLength} step={0.05} unit="м" value={length} />
       <div className="field-row"><NumericField label="Высота" max={12} min={0.2} onChange={(height) => updateWall(wall.id, { height })} unit="м" value={wall.height} /><NumericField label="Толщина" max={1} min={0.05} onChange={(thickness) => updateWall(wall.id, { thickness })} step={0.01} unit="м" value={wall.thickness} /></div>
     </section>
-    <section className="inspector-section"><div className="inspector-title"><span>Цвет стены</span><Droplets size={16} /></div><label className="color-field"><input onChange={(event) => updateWall(wall.id, { color: event.target.value })} type="color" value={wall.color} /><span>{wall.color.toUpperCase()}</span><b>{(angle * 180 / Math.PI).toFixed(1)}°</b></label></section>
+    <section className="inspector-section"><div className="inspector-title"><span>Основа и торцы</span><Droplets size={16} /></div><label className="color-field"><input aria-label="Цвет основы стены" onChange={(event) => updateWall(wall.id, { color: event.target.value })} type="color" value={wall.color} /><span>{wall.color.toUpperCase()}</span><b>{(angle * 180 / Math.PI).toFixed(1)}°</b></label></section>
+    <section className="inspector-section"><div className="inspector-title"><span>Отделка сторон</span><BoxIcon /></div>
+      <div aria-label="Сторона стены" className="wall-side-tabs" role="group"><button aria-pressed={activeSide === 'front'} className={activeSide === 'front' ? 'active' : ''} onClick={() => setActiveSide('front')} type="button"><b>A</b><span>Первая сторона</span></button><button aria-pressed={activeSide === 'back'} className={activeSide === 'back' ? 'active' : ''} onClick={() => setActiveSide('back')} type="button"><b>B</b><span>Обратная сторона</span></button></div>
+      <p className="wall-side-note">Метки A и B показаны на выделенной стене. Направление стены идёт от начальной точки к конечной.</p>
+      <label className="color-field"><input aria-label={`Цвет стороны ${activeSide === 'front' ? 'A' : 'B'}`} onChange={(event) => setStandaloneWallFinish(wall.id, activeSide, { color: event.target.value, ...(finish.textureId ? { textureId: finish.textureId } : {}) })} type="color" value={finish.color} /><span>{finish.color.toUpperCase()}</span></label>
+      <div className="palette">{wallPalette.map((color) => <button aria-label={`Цвет стороны ${activeSide === 'front' ? 'A' : 'B'} ${color}`} className={color.toLowerCase() === finish.color.toLowerCase() && !finish.textureId ? 'active' : ''} key={color} onClick={() => setStandaloneWallFinish(wall.id, activeSide, { color })} style={{ background: color }} type="button" />)}</div>
+      <div className="material-subtitle">Текстура</div>
+      {textures.length ? <div className="texture-grid">{textures.map((texture) => <button className={finish.textureId === texture.id ? 'active' : ''} key={texture.id} onClick={() => setStandaloneWallFinish(wall.id, activeSide, { color: finish.color, textureId: texture.id })} title={texture.name} type="button"><img alt="" src={texture.url} /><span>{texture.name}</span></button>)}</div> : <p className="empty-materials">Загрузите PNG, JPEG или WebP в панели слева, чтобы назначить текстуру выбранной стороне.</p>}
+      <button className="side-finish-reset" onClick={() => clearStandaloneWallFinish(wall.id, activeSide)} type="button">Сбросить сторону {activeSide === 'front' ? 'A' : 'B'}</button>
+    </section>
     <div className="inspector-actions"><button onClick={() => duplicateWall(wall.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeWall(wall.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
   </>;
 }

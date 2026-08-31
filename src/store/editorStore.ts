@@ -65,6 +65,8 @@ interface EditorState {
   duplicateRoom: (id: string) => void;
   removeRoom: (id: string) => void;
   updateWall: (id: string, patch: Partial<PlanWall>) => void;
+  setStandaloneWallFinish: (id: string, side: 'front' | 'back', finish: WallFinish) => void;
+  clearStandaloneWallFinish: (id: string, side: 'front' | 'back') => void;
   duplicateWall: (id: string) => void;
   removeWall: (id: string) => void;
   addStandaloneWallOpening: (wallId: string, kind: StandaloneWallOpening['kind']) => void;
@@ -169,9 +171,15 @@ function normalizedRoom(room: PlanRoom): PlanRoom {
 }
 
 function normalizedWall(wall: PlanWall): PlanWall {
+  const normalizeFinish = (finish: WallFinish): WallFinish => ({
+    color: /^#[0-9a-f]{6}$/i.test(finish.color) ? finish.color : '#E9E4DA',
+    ...(finish.textureId ? { textureId: finish.textureId } : {}),
+  });
   return { ...wall, name: cleanText(wall.name, 80) || 'Стена', startX: clamp(wall.startX, -200, 200), startZ: clamp(wall.startZ, -200, 200),
     endX: clamp(wall.endX, -200, 200), endZ: clamp(wall.endZ, -200, 200), height: clamp(wall.height, 0.2, 12),
-    thickness: clamp(wall.thickness, 0.05, 1), color: /^#[0-9a-f]{6}$/i.test(wall.color) ? wall.color : '#E9E4DA' };
+    thickness: clamp(wall.thickness, 0.05, 1), color: /^#[0-9a-f]{6}$/i.test(wall.color) ? wall.color : '#E9E4DA',
+    ...(wall.frontFinish ? { frontFinish: normalizeFinish(wall.frontFinish) } : {}),
+    ...(wall.backFinish ? { backFinish: normalizeFinish(wall.backFinish) } : {}) };
 }
 
 function fitStandaloneOpening(opening: StandaloneWallOpening, wall: PlanWall): StandaloneWallOpening | undefined {
@@ -576,6 +584,19 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     }
     return { walls, wallOpenings };
   }),
+  setStandaloneWallFinish: (id, side, finish) => set((state) => {
+    const color = /^#[0-9a-f]{6}$/i.test(finish.color) ? finish.color : '#E9E4DA';
+    const textureId = finish.textureId && state.textures.some((texture) => texture.id === finish.textureId) ? finish.textureId : undefined;
+    const property = side === 'front' ? 'frontFinish' : 'backFinish';
+    return { walls: state.walls.map((wall) => wall.id === id ? { ...wall, [property]: { color, ...(textureId ? { textureId } : {}) } } : wall) };
+  }),
+  clearStandaloneWallFinish: (id, side) => set((state) => {
+    const property = side === 'front' ? 'frontFinish' : 'backFinish';
+    return { walls: state.walls.map((wall) => {
+      if (wall.id !== id) return wall;
+      const next = { ...wall }; delete next[property]; return next;
+    }) };
+  }),
   duplicateWall: (id) => set((state) => {
     const source = state.walls.find((wall) => wall.id === id); if (!source) return state;
     const copy = normalizedWall({ ...source, id: newId('wall'), name: `${source.name} — копия`.slice(0, 80),
@@ -711,6 +732,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   addTexture: (asset) => set((state) => ({ textures: [...state.textures, asset], message: 'Текстура готова к применению' })),
   removeTexture: (id) => set((state) => ({
     textures: state.textures.filter((texture) => texture.id !== id),
+    walls: state.walls.map((wall) => ({ ...wall,
+      ...(wall.frontFinish ? { frontFinish: wall.frontFinish.textureId === id ? { color: wall.frontFinish.color } : wall.frontFinish } : {}),
+      ...(wall.backFinish ? { backFinish: wall.backFinish.textureId === id ? { color: wall.backFinish.color } : wall.backFinish } : {}),
+    })),
     wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).map(([key, finish]) => [key,
       finish.textureId === id ? { color: finish.color } : finish])),
     message: 'Текстура удалена из библиотеки',

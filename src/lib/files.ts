@@ -52,6 +52,12 @@ function readRoom(value: unknown, floorIds: Set<string>): PlanRoom | undefined {
     wallThickness: value.wallThickness, floorColor: value.floorColor, ...(vertices ? { vertices } : {}) };
 }
 
+function readFinish(value: unknown): WallFinish | undefined {
+  if (!isRecord(value) || typeof value.color !== 'string' || !colorPattern.test(value.color)
+    || (value.textureId !== undefined && (typeof value.textureId !== 'string' || !uuidPattern.test(value.textureId)))) return undefined;
+  return { color: value.color, ...(typeof value.textureId === 'string' ? { textureId: value.textureId } : {}) };
+}
+
 function readWall(value: unknown, floorIds: Set<string>): PlanWall | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)) return undefined;
   const name = text(value.name, 80);
@@ -59,8 +65,12 @@ function readWall(value: unknown, floorIds: Set<string>): PlanWall | undefined {
     || !finite(value.endZ, -200, 200) || !finite(value.height, 0.2, 12) || !finite(value.thickness, 0.05, 1)
     || typeof value.color !== 'string' || !colorPattern.test(value.color)
     || Math.hypot(value.endX - value.startX, value.endZ - value.startZ) < 0.25) return undefined;
+  const frontFinish = value.frontFinish === undefined ? undefined : readFinish(value.frontFinish);
+  const backFinish = value.backFinish === undefined ? undefined : readFinish(value.backFinish);
+  if (value.frontFinish !== undefined && !frontFinish || value.backFinish !== undefined && !backFinish) return undefined;
   return { id: value.id, floorId: value.floorId, name, startX: value.startX, startZ: value.startZ,
-    endX: value.endX, endZ: value.endZ, height: value.height, thickness: value.thickness, color: value.color };
+    endX: value.endX, endZ: value.endZ, height: value.height, thickness: value.thickness, color: value.color,
+    ...(frontFinish ? { frontFinish } : {}), ...(backFinish ? { backFinish } : {}) };
 }
 
 function readModel(value: unknown, floorIds: Set<string>): ModelInstance | undefined {
