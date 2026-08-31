@@ -3,6 +3,7 @@ import { Box, Check, Compass, Grid3X3, House, Move3D, Rotate3D, RotateCw, Ruler,
 
 import { FloorBar } from './components/FloorBar';
 import { Inspector } from './components/Inspector';
+import { LayerPanel } from './components/LayerPanel';
 import { PlannerCanvas } from './components/scene/PlannerCanvas';
 import { ToolPanel } from './components/ToolPanel';
 import { TopBar } from './components/TopBar';
@@ -149,6 +150,7 @@ export default function App() {
         <FloorBar />
         <ViewControls />
         <TransformModeControls />
+        <LayerPanel />
         <SceneStats />
         <WelcomeBadge />
         <div className="axis-widget"><span className="axis-y">Y</span><span className="axis-x">X</span><span className="axis-z">Z</span><Box size={20} /></div>

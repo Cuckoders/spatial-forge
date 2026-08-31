@@ -137,6 +137,14 @@ export interface ModelInstance {
   scale: number;
 }
 
+export interface ProjectLayer {
+  id: string;
+  name: string;
+  color: string;
+  visible: boolean;
+  locked: boolean;
+}
+
 export interface PlanUtilityRoute {
   id: string;
   floorId: string;
@@ -221,4 +229,6 @@ export interface ProjectDocument {
   utilityDevices: PlanUtilityDevice[];
   utilityRisers: PlanUtilityRiser[];
   utilityJunctions: PlanUtilityJunction[];
+  layers: ProjectLayer[];
+  layerAssignments: Record<string, string>;
 }

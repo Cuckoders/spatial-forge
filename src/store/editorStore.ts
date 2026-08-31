@@ -5,6 +5,7 @@ import { shallow } from 'zustand/shallow';
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { createPlanFloor } from '../lib/floorStructures';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
+import { layerEntityKey, selectionLayerKeys } from '../lib/layers';
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
 import { createProjectFromTemplate } from '../lib/projectTemplates';
@@ -12,7 +13,7 @@ import { connectedUtilityRouteIds } from '../lib/utilityAnalysis';
 import { nearbyUtilityRoutesOfKind, nearestUtilityRoute, nearestUtilityRouteOfKind, UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
 import { nearestUtilityWallMount, resolveUtilityDeviceMount } from '../lib/utilityWallMounts';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityJunction, PlanUtilityRiser, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, UtilityRouteEnd, WallFinish, WallOpening, WallSnapTarget } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityJunction, PlanUtilityRiser, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectLayer, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, UtilityRouteEnd, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -31,6 +32,8 @@ interface EditorState {
   utilityDevices: PlanUtilityDevice[];
   utilityRisers: PlanUtilityRiser[];
   utilityJunctions: PlanUtilityJunction[];
+  layers: ProjectLayer[];
+  layerAssignments: Record<string, string>;
   utilityKind: UtilityKind;
   utilityDeviceKind: UtilityDeviceKind;
   utilityVisibility: Record<UtilityKind, boolean>;
@@ -103,6 +106,10 @@ interface EditorState {
   autoConnectUtilityJunction: (id: string) => void;
   duplicateUtilityJunction: (id: string) => void;
   removeUtilityJunction: (id: string) => void;
+  addLayer: () => void;
+  updateLayer: (id: string, patch: Partial<Pick<ProjectLayer, 'name' | 'color' | 'visible' | 'locked'>>) => void;
+  removeLayer: (id: string) => void;
+  assignSelectionToLayer: (layerId?: string) => void;
   completePolygon: () => void;
   cancelPolygon: () => void;
   updatePolygonVertex: (id: string, index: number, patch: { x?: number; z?: number }) => void;
@@ -161,7 +168,7 @@ interface EditorState {
   endHistoryBatch: () => void;
 }
 
-type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'walls' | 'wallOpenings' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'utilities' | 'utilityDevices' | 'utilityRisers' | 'utilityJunctions' | 'activeFloorId' | 'showAllFloors'>;
+type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'walls' | 'wallOpenings' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'utilities' | 'utilityDevices' | 'utilityRisers' | 'utilityJunctions' | 'layers' | 'layerAssignments' | 'activeFloorId' | 'showAllFloors'>;
 
 const historyPast: HistorySnapshot[] = [];
 const historyFuture: HistorySnapshot[] = [];
@@ -171,6 +178,7 @@ let restoringHistory = false;
 const HISTORY_LIMIT = 60;
 
 const colors = ['#E8DFC9', '#D8E4DD', '#E5D7D7', '#D9DCE8', '#DED6C7'];
+const layerColors = ['#B6C936', '#4B8CC4', '#D86A4A', '#8B67B8', '#4E9D82', '#D09A3D'];
 const cleanText = (value: string, maximum: number) => Array.from(value, (character) => {
   const code = character.charCodeAt(0);
   return code <= 31 || code === 127 ? ' ' : character;
@@ -181,6 +189,18 @@ const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const objectSelectionKey = (selection: ObjectSelection) => `${selection.kind}:${selection.id}`;
 const isObjectSelection = (selection: Selection): selection is ObjectSelection => selection.kind === 'room' || selection.kind === 'model';
 const collapseObjectSelection = (items: ObjectSelection[]): Selection | null => items.length === 0 ? null : items.length === 1 ? items[0]! : { kind: 'group', items };
+const selectionUsesLayer = (selection: Selection | null, layerId: string, assignments: Record<string, string>) =>
+  selectionLayerKeys(selection).some((key) => assignments[key] === layerId);
+const selectionIsLocked = (selection: Selection | null, layers: ProjectLayer[], assignments: Record<string, string>) => {
+  const lockedIds = new Set(layers.filter((layer) => layer.locked).map((layer) => layer.id));
+  return selectionLayerKeys(selection).some((key) => lockedIds.has(assignments[key] ?? ''));
+};
+const copyLayerAssignment = (assignments: Record<string, string>, kind: 'room' | 'wall' | 'model', sourceId: string, targetId: string) => {
+  const layerId = assignments[layerEntityKey(kind, sourceId)];
+  return layerId ? { ...assignments, [layerEntityKey(kind, targetId)]: layerId } : assignments;
+};
+const removeLayerAssignmentKeys = (assignments: Record<string, string>, keys: Set<string>) =>
+  Object.fromEntries(Object.entries(assignments).filter(([key]) => !keys.has(key)));
 
 function demoProject() { return createProjectFromTemplate('family-house')!; }
 
@@ -377,6 +397,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   utilityDevices: initialProject.utilityDevices,
   utilityRisers: initialProject.utilityRisers,
   utilityJunctions: initialProject.utilityJunctions,
+  layers: initialProject.layers,
+  layerAssignments: initialProject.layerAssignments,
   utilityKind: 'electric',
   utilityDeviceKind: 'outlet',
   utilityVisibility: { electric: true, water: true, heating: true },
@@ -410,6 +432,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
     draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] }),
   select: (selection, additive = false) => set((state) => {
+    if (selectionIsLocked(selection, state.layers, state.layerAssignments)) return { message: 'Слой заблокирован · снимите блокировку для выбора' };
     if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
       draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] };
     const currentItems = state.selection?.kind === 'group' ? state.selection.items
@@ -421,13 +444,45 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] };
   }),
   selectObjects: (selections, additive = false) => set((state) => {
+    const availableSelections = selections.filter((selection) => !selectionIsLocked(selection, state.layers, state.layerAssignments));
     const currentItems = additive
       ? state.selection?.kind === 'group' ? state.selection.items : state.selection && isObjectSelection(state.selection) ? [state.selection] : []
       : [];
     const items = new Map(currentItems.map((item) => [objectSelectionKey(item), item]));
-    for (const selection of selections) items.set(objectSelectionKey(selection), selection);
+    for (const selection of availableSelections) items.set(objectSelectionKey(selection), selection);
     return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
       draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [] };
+  }),
+  addLayer: () => set((state) => {
+    if (state.layers.length >= 24) return { message: 'Можно создать не больше 24 пользовательских слоёв' };
+    const count = state.layers.length + 1;
+    const layer: ProjectLayer = { id: newId('layer'), name: `Слой ${count}`, color: layerColors[state.layers.length % layerColors.length] ?? '#B6C936', visible: true, locked: false };
+    return { layers: [...state.layers, layer], message: `Создан «${layer.name}»` };
+  }),
+  updateLayer: (id, patch) => set((state) => {
+    const source = state.layers.find((layer) => layer.id === id); if (!source) return state;
+    const layer: ProjectLayer = { ...source,
+      name: patch.name === undefined ? source.name : cleanText(patch.name, 40) || source.name,
+      color: patch.color && /^#[0-9a-f]{6}$/i.test(patch.color) ? patch.color : source.color,
+      visible: patch.visible ?? source.visible, locked: patch.locked ?? source.locked };
+    const shouldDeselect = (!layer.visible || layer.locked) && selectionUsesLayer(state.selection, id, state.layerAssignments);
+    return { layers: state.layers.map((item) => item.id === id ? layer : item), ...(shouldDeselect ? { selection: null } : {}) };
+  }),
+  removeLayer: (id) => set((state) => {
+    const source = state.layers.find((layer) => layer.id === id); if (!source) return state;
+    return { layers: state.layers.filter((layer) => layer.id !== id),
+      layerAssignments: Object.fromEntries(Object.entries(state.layerAssignments).filter(([, layerId]) => layerId !== id)),
+      selection: selectionUsesLayer(state.selection, id, state.layerAssignments) ? null : state.selection,
+      message: `Слой «${source.name}» удалён · элементы перенесены в основной слой` };
+  }),
+  assignSelectionToLayer: (layerId) => set((state) => {
+    if (layerId && !state.layers.some((layer) => layer.id === layerId)) return { message: 'Выбранный слой не найден' };
+    const keys = selectionLayerKeys(state.selection); if (!keys.length) return { message: 'Выберите комнату, стену, объект или группу' };
+    const layerAssignments = { ...state.layerAssignments };
+    for (const key of keys) { if (layerId) layerAssignments[key] = layerId; else delete layerAssignments[key]; }
+    const layer = layerId ? state.layers.find((item) => item.id === layerId) : undefined;
+    return { layerAssignments, selection: layer && (!layer.visible || layer.locked) ? null : state.selection,
+      message: layer ? `Назначен слой «${layer.name}» · элементов: ${keys.length}` : `Перенесено в основной слой · элементов: ${keys.length}` };
   }),
   setSnapGuides: (snapGuides) => set({ snapGuides }),
   setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
@@ -882,6 +937,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       if (finish) wallFinishes[wallId(copy.id, index)] = finish;
     }
     return { rooms: [...state.rooms, copy], openings: [...state.openings, ...copiedOpenings], wallFinishes,
+      layerAssignments: copyLayerAssignment(state.layerAssignments, 'room', source.id, copy.id),
       selection: { kind: 'room', id: copy.id }, message: 'Блок скопирован вместе с отделкой' };
   }),
   copyRoomToClipboard: (id) => {
@@ -898,6 +954,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const utilityDevices = state.utilityDevices.map((device) => device.wallMount?.kind === 'room' && device.wallMount.sourceId === id
       ? { ...resolveUtilityDeviceMount(device, state.rooms, state.walls), wallMount: undefined } : device);
     return { rooms: state.rooms.filter((room) => room.id !== id), utilityDevices,
+      layerAssignments: removeLayerAssignmentKeys(state.layerAssignments, new Set([layerEntityKey('room', id)])),
       wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => !key.startsWith(`${id}:wall:`))),
       openings: state.openings.filter((opening) => opening.roomId !== id),
       selection: state.selection?.kind === 'room' && state.selection.id === id || state.selection?.kind === 'vertex' && state.selection.roomId === id
@@ -960,12 +1017,14 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const openings = state.wallOpenings.filter((opening) => opening.wallId === source.id)
       .map((opening) => ({ ...opening, id: newId('wall-opening'), wallId: copy.id }));
     return { walls: [...state.walls, copy], wallOpenings: [...state.wallOpenings, ...openings],
+      layerAssignments: copyLayerAssignment(state.layerAssignments, 'wall', source.id, copy.id),
       selection: { kind: 'partition', id: copy.id }, message: 'Стена скопирована' };
   }),
   removeWall: (id) => set((state) => {
     const utilityDevices = state.utilityDevices.map((device) => device.wallMount?.kind === 'partition' && device.wallMount.sourceId === id
       ? { ...resolveUtilityDeviceMount(device, state.rooms, state.walls), wallMount: undefined } : device);
     return { walls: state.walls.filter((wall) => wall.id !== id), utilityDevices,
+      layerAssignments: removeLayerAssignmentKeys(state.layerAssignments, new Set([layerEntityKey('wall', id)])),
       wallOpenings: state.wallOpenings.filter((opening) => opening.wallId !== id),
       selection: state.selection?.kind === 'partition' && state.selection.id === id ? null : state.selection, message: 'Стена удалена' };
   }),
@@ -1070,8 +1129,9 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
         if (finish) wallFinishes[wallId(targetRoomId, index)] = finish;
       }
     }
-    const models = state.modelInstances.filter((model) => model.floorId === sourceFloor.id)
-      .map((model) => ({ ...model, id: newId('object'), floorId: floor.id }));
+    const sourceModels = state.modelInstances.filter((model) => model.floorId === sourceFloor.id);
+    const modelIds = new Map(sourceModels.map((model) => [model.id, newId('object')]));
+    const models = sourceModels.map((model) => ({ ...model, id: modelIds.get(model.id) ?? newId('object'), floorId: floor.id }));
     const sourceWalls = state.walls.filter((wall) => wall.floorId === sourceFloor.id);
     const wallIds = new Map(sourceWalls.map((wall) => [wall.id, newId('wall')]));
     const walls = sourceWalls.map((wall) => ({ ...wall, id: wallIds.get(wall.id) ?? newId('wall'), floorId: floor.id }));
@@ -1091,9 +1151,13 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const utilityJunctions = state.utilityJunctions.filter((junction) => junction.floorId === sourceFloor.id)
       .map((junction) => ({ ...junction, id: newId('utility-junction'), floorId: floor.id,
         routeIds: junction.routeIds.flatMap((routeId) => utilityIds.get(routeId) ?? []) }));
+    let layerAssignments = state.layerAssignments;
+    for (const [sourceId, targetId] of roomIds) layerAssignments = copyLayerAssignment(layerAssignments, 'room', sourceId, targetId);
+    for (const [sourceId, targetId] of wallIds) layerAssignments = copyLayerAssignment(layerAssignments, 'wall', sourceId, targetId);
+    for (const [sourceId, targetId] of modelIds) layerAssignments = copyLayerAssignment(layerAssignments, 'model', sourceId, targetId);
     return { floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], openings: [...state.openings, ...openings],
       walls: [...state.walls, ...walls], wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes,
-      modelInstances: [...state.modelInstances, ...models], utilities: [...state.utilities, ...utilities], utilityDevices: [...state.utilityDevices, ...utilityDevices], utilityJunctions: [...state.utilityJunctions, ...utilityJunctions], activeFloorId: floor.id, selection: null,
+      modelInstances: [...state.modelInstances, ...models], utilities: [...state.utilities, ...utilities], utilityDevices: [...state.utilityDevices, ...utilityDevices], utilityJunctions: [...state.utilityJunctions, ...utilityJunctions], layerAssignments, activeFloorId: floor.id, selection: null,
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
   copyActiveFloorToClipboard: () => {
@@ -1186,6 +1250,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const remaining = state.floors.filter((floor) => floor.id !== state.activeFloorId);
     const removedRoomIds = new Set(state.rooms.filter((room) => room.floorId === state.activeFloorId).map((room) => room.id));
     const removedWallIds = new Set(state.walls.filter((wall) => wall.floorId === state.activeFloorId).map((wall) => wall.id));
+    const removedModelIds = new Set(state.modelInstances.filter((model) => model.floorId === state.activeFloorId).map((model) => model.id));
+    const removedLayerKeys = new Set([
+      ...[...removedRoomIds].map((id) => layerEntityKey('room', id)),
+      ...[...removedWallIds].map((id) => layerEntityKey('wall', id)),
+      ...[...removedModelIds].map((id) => layerEntityKey('model', id)),
+    ]);
     return { floors: remaining, rooms: state.rooms.filter((room) => room.floorId !== state.activeFloorId), walls: state.walls.filter((wall) => wall.floorId !== state.activeFloorId),
       wallOpenings: state.wallOpenings.filter((opening) => !removedWallIds.has(opening.wallId)),
       wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => ![...removedRoomIds].some((id) => key.startsWith(`${id}:wall:`)))),
@@ -1194,6 +1264,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       utilities: state.utilities.filter((route) => route.floorId !== state.activeFloorId), utilityDevices: state.utilityDevices.filter((device) => device.floorId !== state.activeFloorId),
       utilityRisers: state.utilityRisers.filter((riser) => riser.fromFloorId !== state.activeFloorId && riser.toFloorId !== state.activeFloorId),
       utilityJunctions: state.utilityJunctions.filter((junction) => junction.floorId !== state.activeFloorId),
+      layerAssignments: removeLayerAssignmentKeys(state.layerAssignments, removedLayerKeys),
       activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
   }),
   toggleAllFloors: () => set((state) => ({ showAllFloors: !state.showAllFloors })),
@@ -1212,8 +1283,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   addModelAsset: (asset) => set((state) => ({ modelAssets: [...state.modelAssets, asset], message: 'GLB-модель добавлена в библиотеку' })),
   removeModelAsset: (id) => set((state) => {
     const selectedModelId = state.selection?.kind === 'model' ? state.selection.id : undefined;
+    const removedModelIds = new Set(state.modelInstances.filter((model) => model.assetId === id).map((model) => layerEntityKey('model', model.id)));
     return { modelAssets: state.modelAssets.filter((asset) => asset.id !== id),
       modelInstances: state.modelInstances.filter((model) => model.assetId !== id),
+      layerAssignments: removeLayerAssignmentKeys(state.layerAssignments, removedModelIds),
       selection: selectedModelId && state.modelInstances.some((model) => model.id === selectedModelId && model.assetId === id) ? null : state.selection,
       message: 'Модель и её экземпляры удалены' };
   }),
@@ -1235,9 +1308,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   duplicateModel: (id) => set((state) => {
     const source = state.modelInstances.find((model) => model.id === id); if (!source) return state;
     const copy = { ...source, id: newId('object'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 1, z: source.z + 1 };
-    return { modelInstances: [...state.modelInstances, copy], selection: { kind: 'model', id: copy.id }, message: 'Объект скопирован' };
+    return { modelInstances: [...state.modelInstances, copy], layerAssignments: copyLayerAssignment(state.layerAssignments, 'model', source.id, copy.id),
+      selection: { kind: 'model', id: copy.id }, message: 'Объект скопирован' };
   }),
-  removeModel: (id) => set((state) => ({ modelInstances: state.modelInstances.filter((model) => model.id !== id), selection: state.selection?.kind === 'model' && state.selection.id === id ? null : state.selection })),
+  removeModel: (id) => set((state) => ({ modelInstances: state.modelInstances.filter((model) => model.id !== id),
+    layerAssignments: removeLayerAssignmentKeys(state.layerAssignments, new Set([layerEntityKey('model', id)])),
+    selection: state.selection?.kind === 'model' && state.selection.id === id ? null : state.selection })),
   moveSelectedObjects: (dx, dz) => set((state) => {
     if (state.selection?.kind !== 'group' || !Number.isFinite(dx) || !Number.isFinite(dz)) return state;
     const roomIds = new Set(state.selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
@@ -1300,11 +1376,13 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     set((state) => {
       const rooms = [...state.rooms]; const modelInstances = [...state.modelInstances]; const openings = [...state.openings];
       const wallFinishes = { ...state.wallFinishes }; const items: ObjectSelection[] = [];
+      let layerAssignments = state.layerAssignments;
       for (const item of selection.items) {
         if (item.kind === 'room') {
           const source = state.rooms.find((room) => room.id === item.id); if (!source) continue;
           const copy = { ...source, id: newId('block'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 1, z: source.z + 1 };
           rooms.push(copy); items.push({ kind: 'room', id: copy.id });
+          layerAssignments = copyLayerAssignment(layerAssignments, 'room', source.id, copy.id);
           openings.push(...state.openings.filter((opening) => opening.roomId === source.id)
             .map((opening) => ({ ...opening, id: newId('opening'), roomId: copy.id })));
           for (const [key, finish] of Object.entries(state.wallFinishes)) {
@@ -1314,9 +1392,11 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
           const source = state.modelInstances.find((model) => model.id === item.id); if (!source) continue;
           const copy = { ...source, id: newId('object'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 1, z: source.z + 1 };
           modelInstances.push(copy); items.push({ kind: 'model', id: copy.id });
+          layerAssignments = copyLayerAssignment(layerAssignments, 'model', source.id, copy.id);
         }
       }
-      return { rooms, modelInstances, openings, wallFinishes, selection: collapseObjectSelection(items), message: `Скопировано элементов: ${items.length}` };
+      return { rooms, modelInstances, openings, wallFinishes, layerAssignments,
+        selection: collapseObjectSelection(items), message: `Скопировано элементов: ${items.length}` };
     });
   },
   deleteSelection: () => {
@@ -1333,6 +1413,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     else if (selection?.kind === 'group') set((state) => {
       const roomIds = new Set(selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
       const modelIds = new Set(selection.items.filter((item) => item.kind === 'model').map((item) => item.id));
+      const removedLayerKeys = new Set([
+        ...[...roomIds].map((id) => layerEntityKey('room', id)),
+        ...[...modelIds].map((id) => layerEntityKey('model', id)),
+      ]);
       return {
         rooms: state.rooms.filter((room) => !roomIds.has(room.id)),
         modelInstances: state.modelInstances.filter((model) => !modelIds.has(model.id)),
@@ -1340,6 +1424,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
         wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => {
           const separator = key.indexOf(':wall:'); return separator < 0 || !roomIds.has(key.slice(0, separator));
         })),
+        layerAssignments: removeLayerAssignmentKeys(state.layerAssignments, removedLayerKeys),
         selection: null,
         message: `Удалено элементов: ${roomIds.size + modelIds.size}`,
       };
@@ -1350,12 +1435,14 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
     floors: project.floors, rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities, utilityDevices: project.utilityDevices, utilityRisers: project.utilityRisers, utilityJunctions: project.utilityJunctions,
+    layers: project.layers, layerAssignments: project.layerAssignments,
     activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
     draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
       rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities, utilityDevices: project.utilityDevices, utilityRisers: project.utilityRisers, utilityJunctions: project.utilityJunctions,
+      layers: project.layers, layerAssignments: project.layerAssignments,
       activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
       draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Демо-проект восстановлен' });
   },
@@ -1370,7 +1457,8 @@ function captureHistory(state: EditorState): HistorySnapshot {
   return {
     projectName: state.projectName, projectType: state.projectType, site: state.site, floors: state.floors,
     rooms: state.rooms, walls: state.walls, wallOpenings: state.wallOpenings, wallFinishes: state.wallFinishes, openings: state.openings, textures: state.textures, modelAssets: state.modelAssets,
-    modelInstances: state.modelInstances, utilities: state.utilities, utilityDevices: state.utilityDevices, utilityRisers: state.utilityRisers, utilityJunctions: state.utilityJunctions, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
+    modelInstances: state.modelInstances, utilities: state.utilities, utilityDevices: state.utilityDevices, utilityRisers: state.utilityRisers, utilityJunctions: state.utilityJunctions,
+    layers: state.layers, layerAssignments: state.layerAssignments, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
   };
 }
 
@@ -1378,6 +1466,7 @@ function sameHistory(left: HistorySnapshot, right: HistorySnapshot) {
   return left.projectName === right.projectName && left.projectType === right.projectType && left.site === right.site
     && left.floors === right.floors && left.rooms === right.rooms && left.walls === right.walls && left.wallOpenings === right.wallOpenings && left.wallFinishes === right.wallFinishes && left.openings === right.openings
     && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances && left.utilities === right.utilities && left.utilityDevices === right.utilityDevices && left.utilityRisers === right.utilityRisers && left.utilityJunctions === right.utilityJunctions
+    && left.layers === right.layers && left.layerAssignments === right.layerAssignments
     && left.activeFloorId === right.activeFloorId && left.showAllFloors === right.showAllFloors;
 }
 
@@ -1425,7 +1514,7 @@ function redoHistory() {
 lastHistorySnapshot = captureHistory(useEditorStore.getState());
 
 useEditorStore.subscribe(
-  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.utilities, state.utilityDevices, state.utilityRisers, state.utilityJunctions, state.activeFloorId, state.showAllFloors] as const,
+  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.utilities, state.utilityDevices, state.utilityRisers, state.utilityJunctions, state.layers, state.layerAssignments, state.activeFloorId, state.showAllFloors] as const,
   () => {
     const current = captureHistory(useEditorStore.getState());
     if (restoringHistory) { restoringHistory = false; lastHistorySnapshot = current; return; }
@@ -1442,10 +1531,10 @@ useEditorStore.subscribe(
 if (typeof window !== 'undefined') {
   let saveTimer: number | undefined;
   useEditorStore.subscribe(
-    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.modelInstances, state.utilities, state.utilityDevices, state.utilityRisers, state.utilityJunctions] as const,
-    ([name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices, utilityRisers, utilityJunctions]) => {
+    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.modelInstances, state.utilities, state.utilityDevices, state.utilityRisers, state.utilityJunctions, state.layers, state.layerAssignments] as const,
+    ([name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices, utilityRisers, utilityJunctions, layers, layerAssignments]) => {
       window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices, utilityRisers, utilityJunctions })), 180);
+      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices, utilityRisers, utilityJunctions, layers, layerAssignments })), 180);
     },
     { equalityFn: shallow },
   );

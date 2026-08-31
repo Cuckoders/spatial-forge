@@ -24,6 +24,8 @@ export function TopBar({ onOpenTemplates, onOpenEstimate }: { onOpenTemplates: (
       utilityDevices: store.utilityDevices,
       utilityRisers: store.utilityRisers,
       utilityJunctions: store.utilityJunctions,
+      layers: store.layers,
+      layerAssignments: store.layerAssignments,
     }));
     store.notify('Файл проекта сохранён');
   };
