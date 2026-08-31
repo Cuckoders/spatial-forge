@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { BrickWall, Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
+import { BrickWall, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
-import type { ObjectSelection, StandaloneWallOpening, WallFinish, WallOpening } from '../types';
+import type { ObjectSelection, Selection, StandaloneWallOpening, WallFinish, WallOpening } from '../types';
 
 const wallPalette = ['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'];
 
@@ -68,7 +68,7 @@ function RoomInspector({ id, selectedVertexIndex }: { id: string; selectedVertex
     <section className="inspector-section"><div className="inspector-title"><span>Размеры</span><Ruler size={16} /></div>{room.shape === 'polygon' ? <div className="polygon-summary"><span><b>{room.vertices?.length ?? 0}</b> вершин</span><span><b>{room.width.toFixed(1)} × {room.depth.toFixed(1)}</b> м</span></div> : <div className="field-row"><NumericField label="Ширина" max={50} min={0.5} onChange={(width) => updateRoom(room.id, { width })} unit="м" value={room.width} /><NumericField label="Глубина" max={50} min={0.5} onChange={(depth) => updateRoom(room.id, { depth })} unit="м" value={room.depth} /></div>}<div className="field-row"><NumericField label="Высота стен" max={12} min={0.2} onChange={(wallHeight) => updateRoom(room.id, { wallHeight })} unit="м" value={room.wallHeight} /><NumericField label="Толщина" max={1} min={0.05} onChange={(wallThickness) => updateRoom(room.id, { wallThickness })} step={0.01} unit="м" value={room.wallThickness} /></div></section>
     <section className="inspector-section"><div className="inspector-title"><span>Пол</span><Droplets size={16} /></div><label className="color-field"><input onChange={(event) => updateRoom(room.id, { floorColor: event.target.value })} type="color" value={room.floorColor} /><span>{room.floorColor.toUpperCase()}</span><b>{roomArea(room).toFixed(1)} м²</b></label></section>
     {room.shape === 'polygon' && room.vertices ? <section className="inspector-section"><div className="inspector-title"><span>Вершины контура</span><Move3D size={16} /></div><p className="vertex-note">Координаты указаны относительно центра объекта. Выберите маркер и двигайте его по осям X/Z с шагом 0,5 м.</p><div className="vertex-list">{room.vertices.map((point, index) => <div className={`vertex-row${selectedVertexIndex === index ? ' active' : ''}`} key={index}><b>{index + 1}</b><div className="vertex-controls"><div className="field-row"><NumericField label="X" max={50} min={-50} onChange={(x) => updatePolygonVertex(room.id, index, { x })} unit="м" value={point[0]} /><NumericField label="Z" max={50} min={-50} onChange={(z) => updatePolygonVertex(room.id, index, { z })} unit="м" value={point[1]} /></div><div className="vertex-actions"><button onClick={() => insertPolygonVertex(room.id, index)} title={`Добавить вершину после ${index + 1}`} type="button"><Plus size={13} /> После этой стены</button><button className="danger" disabled={room.vertices!.length <= 3} onClick={() => removePolygonVertex(room.id, index)} title={`Удалить вершину ${index + 1}`} type="button"><Trash2 size={12} /></button></div></div></div>)}</div></section> : null}
-    <div className="inspector-actions"><button onClick={() => duplicateRoom(room.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeRoom(room.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
+    <div className="inspector-actions"><button onClick={() => duplicateRoom(room.id)} type="button"><Copy size={16} /> Дублировать</button><button className="danger" onClick={() => removeRoom(room.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
   </>;
 }
 
@@ -180,7 +180,22 @@ function GroupInspector({ items }: { items: ObjectSelection[] }) {
   </>;
 }
 
+function ProjectClipboardPanel({ selection }: { selection: Selection | null }) {
+  const clipboard = useEditorStore((state) => state.projectClipboard);
+  const hasActiveFloor = useEditorStore((state) => state.floors.some((floor) => floor.id === state.activeFloorId));
+  const copyRoom = useEditorStore((state) => state.copyRoomToClipboard);
+  const copyFloor = useEditorStore((state) => state.copyActiveFloorToClipboard);
+  const paste = useEditorStore((state) => state.pasteProjectClipboard);
+  const roomId = selection?.kind === 'room' ? selection.id : undefined;
+  return <section className="inspector-section project-clipboard"><div className="inspector-title"><span>Между проектами</span><ClipboardCopy size={16} /></div>
+    <p>Буфер хранится на этом устройстве и остаётся доступным после открытия другого проекта.</p>
+    <div className="clipboard-copy-actions"><button disabled={!roomId} onClick={() => roomId && copyRoom(roomId)} type="button"><ClipboardCopy size={14} /> Комнату</button><button disabled={!hasActiveFloor} onClick={copyFloor} type="button"><Layers3 size={14} /> Этаж</button></div>
+    <div className={`clipboard-slot${clipboard ? ' filled' : ''}`}><span>{clipboard ? clipboard.kind === 'room' ? 'Комната' : 'Этаж' : 'Буфер пуст'}</span><b>{clipboard?.label ?? 'Скопируйте комнату или этаж'}</b></div>
+    <button className="clipboard-paste" disabled={!clipboard} onClick={paste} type="button"><ClipboardPaste size={15} /> {clipboard?.kind === 'floor' ? 'Вставить новым этажом' : 'Вставить в активный этаж'}</button>
+  </section>;
+}
+
 export function Inspector() {
   const selection = useEditorStore((state) => state.selection);
-  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}</aside>;
+  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
 }

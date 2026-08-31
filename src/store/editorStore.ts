@@ -5,6 +5,7 @@ import { shallow } from 'zustand/shallow';
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
+import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
 import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
@@ -21,6 +22,7 @@ interface EditorState {
   textures: TextureAsset[];
   modelAssets: ModelAsset[];
   modelInstances: ModelInstance[];
+  projectClipboard: ProjectClipboardSummary | null;
   activeFloorId: string;
   showAllFloors: boolean;
   showDimensions: boolean;
@@ -63,6 +65,7 @@ interface EditorState {
   removePolygonVertex: (id: string, index: number) => void;
   updateRoom: (id: string, patch: Partial<PlanRoom>) => void;
   duplicateRoom: (id: string) => void;
+  copyRoomToClipboard: (id: string) => void;
   removeRoom: (id: string) => void;
   updateWall: (id: string, patch: Partial<PlanWall>) => void;
   setStandaloneWallFinish: (id: string, side: 'front' | 'back', finish: WallFinish) => void;
@@ -80,6 +83,8 @@ interface EditorState {
   addFloor: () => void;
   updateFloor: (id: string, patch: Partial<Pick<PlanFloor, 'name' | 'elevation'>>) => void;
   duplicateActiveFloor: () => void;
+  copyActiveFloorToClipboard: () => void;
+  pasteProjectClipboard: () => void;
   setActiveFloor: (id: string) => void;
   removeActiveFloor: () => void;
   toggleAllFloors: () => void;
@@ -162,6 +167,7 @@ function demoProject(): ProjectDocument {
 }
 
 const initialProject = typeof window === 'undefined' ? demoProject() : readAutosave() ?? demoProject();
+const initialClipboard = typeof window === 'undefined' ? undefined : readProjectClipboard();
 
 function normalizedRoom(room: PlanRoom): PlanRoom {
   return { ...room, name: cleanText(room.name, 80) || 'Блок', x: clamp(room.x, -200, 200), z: clamp(room.z, -200, 200),
@@ -305,6 +311,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   textures: [],
   modelAssets: [],
   modelInstances: initialProject.modelInstances,
+  projectClipboard: summarizeProjectClipboard(initialClipboard),
   activeFloorId: initialProject.floors[0]?.id ?? 'floor-1',
   showAllFloors: false,
   showDimensions: false,
@@ -540,8 +547,24 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const copy = { ...source, id: newId('block'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 1, z: source.z + 1 };
     const copiedOpenings = state.openings.filter((opening) => opening.roomId === source.id)
       .map((opening) => ({ ...opening, id: newId('opening'), roomId: copy.id }));
-    return { rooms: [...state.rooms, copy], openings: [...state.openings, ...copiedOpenings], selection: { kind: 'room', id: copy.id }, message: 'Блок скопирован' };
+    const wallFinishes = { ...state.wallFinishes };
+    for (let index = 0; index < roomVertices(source).length; index += 1) {
+      const finish = state.wallFinishes[wallId(source.id, index)];
+      if (finish) wallFinishes[wallId(copy.id, index)] = finish;
+    }
+    return { rooms: [...state.rooms, copy], openings: [...state.openings, ...copiedOpenings], wallFinishes,
+      selection: { kind: 'room', id: copy.id }, message: 'Блок скопирован вместе с отделкой' };
   }),
+  copyRoomToClipboard: (id) => {
+    const state = get(); const room = state.rooms.find((item) => item.id === id); if (!room) return;
+    const floor = state.floors.find((item) => item.id === room.floorId); if (!floor) return;
+    const wallFinishes = Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => key.startsWith(`${room.id}:wall:`)));
+    const clipboard = { version: 1 as const, kind: 'room' as const, label: room.name, copiedAt: Date.now(),
+      project: createProjectDocument({ name: `Буфер — ${room.name}`.slice(0, 80), projectType: state.projectType, site: state.site, floors: [floor], rooms: [room],
+        walls: [], wallOpenings: [], wallFinishes, openings: state.openings.filter((opening) => opening.roomId === room.id), modelInstances: [] }) };
+    if (!writeProjectClipboard(clipboard)) { set({ message: 'Не удалось сохранить комнату в локальный буфер' }); return; }
+    set({ projectClipboard: summarizeProjectClipboard(clipboard), message: `«${room.name}» скопирована для переноса между проектами` });
+  },
   removeRoom: (id) => set((state) => ({ rooms: state.rooms.filter((room) => room.id !== id),
     wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => !key.startsWith(`${id}:wall:`))),
     openings: state.openings.filter((opening) => opening.roomId !== id),
@@ -714,6 +737,74 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       modelInstances: [...state.modelInstances, ...models], activeFloorId: floor.id, selection: null,
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
+  copyActiveFloorToClipboard: () => {
+    const state = get(); const floor = state.floors.find((item) => item.id === state.activeFloorId); if (!floor) return;
+    const rooms = state.rooms.filter((room) => room.floorId === floor.id); const roomIds = new Set(rooms.map((room) => room.id));
+    const roomPrefixes = rooms.map((room) => `${room.id}:wall:`);
+    const walls = state.walls.filter((wall) => wall.floorId === floor.id); const wallIds = new Set(walls.map((wall) => wall.id));
+    const wallFinishes = Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => roomPrefixes.some((prefix) => key.startsWith(prefix))));
+    const clipboard = { version: 1 as const, kind: 'floor' as const, label: floor.name, copiedAt: Date.now(),
+      project: createProjectDocument({ name: `Буфер — ${floor.name}`.slice(0, 80), projectType: state.projectType, site: state.site, floors: [floor], rooms, walls,
+        wallOpenings: state.wallOpenings.filter((opening) => wallIds.has(opening.wallId)), wallFinishes,
+        openings: state.openings.filter((opening) => roomIds.has(opening.roomId)), modelInstances: state.modelInstances.filter((model) => model.floorId === floor.id) }) };
+    if (!writeProjectClipboard(clipboard)) { set({ message: 'Не удалось сохранить этаж в локальный буфер' }); return; }
+    set({ projectClipboard: summarizeProjectClipboard(clipboard), message: `«${floor.name}» скопирован для переноса между проектами` });
+  },
+  pasteProjectClipboard: () => {
+    const clipboard = readProjectClipboard();
+    if (!clipboard) { set({ projectClipboard: null, message: 'Локальный буфер пуст или повреждён' }); return; }
+    const state = get();
+    const incoming = clipboard.project;
+    if (state.rooms.length + incoming.rooms.length > 500 || state.walls.length + incoming.walls.length > 1_000
+      || state.wallOpenings.length + incoming.wallOpenings.length > 1_000 || state.openings.length + incoming.openings.length > 1_000
+      || state.modelInstances.length + incoming.modelInstances.length > 200
+      || Object.keys(state.wallFinishes).length + Object.keys(incoming.wallFinishes).length > 2_000) {
+      set({ message: 'Вставка превысит допустимый размер проекта' }); return;
+    }
+    if (clipboard.kind === 'room') {
+      const source = clipboard.project.rooms[0];
+      if (!source || !state.floors.some((floor) => floor.id === state.activeFloorId)) { set({ message: 'В буфере нет комнаты для вставки' }); return; }
+      const id = newId('block');
+      const room = normalizedRoom({ ...source, id, floorId: state.activeFloorId, name: `${source.name} — вставка`.slice(0, 80), x: source.x + 1, z: source.z + 1 });
+      const openings = clipboard.project.openings.filter((opening) => opening.roomId === source.id)
+        .map((opening) => ({ ...opening, id: newId('opening'), roomId: id }));
+      const wallFinishes = { ...state.wallFinishes };
+      for (let index = 0; index < roomVertices(source).length; index += 1) {
+        const finish = clipboard.project.wallFinishes[wallId(source.id, index)];
+        if (finish) wallFinishes[wallId(id, index)] = finish;
+      }
+      set({ rooms: [...state.rooms, room], openings: [...state.openings, ...openings], wallFinishes,
+        selection: { kind: 'room', id }, projectClipboard: summarizeProjectClipboard(clipboard), message: `Комната «${source.name}» вставлена в активный этаж` });
+      return;
+    }
+    if (state.floors.length >= 12) { set({ message: 'Для вставки этажа нужно освободить место: максимум 12 этажей' }); return; }
+    const sourceFloor = clipboard.project.floors[0]; if (!sourceFloor) { set({ message: 'В буфере нет этажа для вставки' }); return; }
+    const floor: PlanFloor = { ...sourceFloor, id: newId('floor'), name: `${sourceFloor.name} — вставка`.slice(0, 80),
+      elevation: Math.min(60, Math.max(...state.floors.map((item) => item.elevation)) + 3.2) };
+    const roomIds = new Map(clipboard.project.rooms.map((room) => [room.id, newId('block')]));
+    const rooms = clipboard.project.rooms.map((room) => ({ ...room, id: roomIds.get(room.id)!, floorId: floor.id }));
+    const wallIds = new Map(clipboard.project.walls.map((wall) => [wall.id, newId('wall')]));
+    const walls = clipboard.project.walls.map((wall) => ({ ...wall, id: wallIds.get(wall.id)!, floorId: floor.id }));
+    const openings = clipboard.project.openings.flatMap((opening) => {
+      const roomId = roomIds.get(opening.roomId); return roomId ? [{ ...opening, id: newId('opening'), roomId }] : [];
+    });
+    const wallOpenings = clipboard.project.wallOpenings.flatMap((opening) => {
+      const wallId = wallIds.get(opening.wallId); return wallId ? [{ ...opening, id: newId('wall-opening'), wallId }] : [];
+    });
+    const wallFinishes = { ...state.wallFinishes };
+    for (const sourceRoom of clipboard.project.rooms) {
+      const roomId = roomIds.get(sourceRoom.id); if (!roomId) continue;
+      for (let index = 0; index < roomVertices(sourceRoom).length; index += 1) {
+        const finish = clipboard.project.wallFinishes[wallId(sourceRoom.id, index)];
+        if (finish) wallFinishes[wallId(roomId, index)] = finish;
+      }
+    }
+    const modelInstances = clipboard.project.modelInstances.map((model) => ({ ...model, id: newId('object'), floorId: floor.id }));
+    set({ floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], walls: [...state.walls, ...walls],
+      wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes, openings: [...state.openings, ...openings],
+      modelInstances: [...state.modelInstances, ...modelInstances], activeFloorId: floor.id, showAllFloors: false, selection: null,
+      projectClipboard: summarizeProjectClipboard(clipboard), message: `Этаж «${sourceFloor.name}» вставлен вместе с содержимым` });
+  },
   setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId)
     ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] } : state),
   removeActiveFloor: () => set((state) => {

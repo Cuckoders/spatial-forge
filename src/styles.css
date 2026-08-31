@@ -241,6 +241,16 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .floor-name-field input { height: 36px; width: 100%; border: 1px solid var(--line); background: white; border-radius: 7px; padding: 0 9px; font-size: 10px; font-weight: 700; }
 .duplicate-floor { width: 100%; min-height: 36px; border: 1px solid #cfd2c6; background: #f4f6e8; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 9px; font-weight: 700; cursor: pointer; }
 .duplicate-floor:hover { background: var(--acid); border-color: var(--acid-dark); }
+.project-clipboard > p { margin: -2px 0 10px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.clipboard-copy-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.clipboard-copy-actions button, .clipboard-paste { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 8px; font-weight: 700; cursor: pointer; }
+.clipboard-copy-actions button:disabled, .clipboard-paste:disabled { opacity: .38; cursor: not-allowed; }
+.clipboard-slot { min-height: 47px; display: grid; align-content: center; gap: 3px; margin: 8px 0 6px; padding: 8px 10px; border: 1px dashed #c9ccc2; border-radius: 8px; background: #f1f1ec; }
+.clipboard-slot.filled { border-style: solid; border-color: #ccd58e; background: #f2f5db; }
+.clipboard-slot span { color: #888e88; font-size: 7px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.clipboard-slot b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.clipboard-paste { width: 100%; border-color: var(--ink); background: var(--ink); color: white; }
+.clipboard-paste:not(:disabled):hover { color: var(--acid); }
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 100; display: flex; align-items: center; gap: 8px; background: var(--ink); color: white; padding: 10px 14px; border-radius: 9px; box-shadow: 0 10px 35px rgba(0,0,0,.24); font-size: 11px; }
 .toast svg { color: var(--acid); }
 .mobile-warning { display: none; }
