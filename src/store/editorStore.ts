@@ -8,10 +8,10 @@ import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVert
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
 import { createProjectFromTemplate } from '../lib/projectTemplates';
-import { nearestUtilityRoute, UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
+import { nearestUtilityRoute, nearestUtilityRouteOfKind, UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
 import { nearestUtilityWallMount, resolveUtilityDeviceMount } from '../lib/utilityWallMounts';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening, WallSnapTarget } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRiser, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -28,6 +28,7 @@ interface EditorState {
   modelInstances: ModelInstance[];
   utilities: PlanUtilityRoute[];
   utilityDevices: PlanUtilityDevice[];
+  utilityRisers: PlanUtilityRiser[];
   utilityKind: UtilityKind;
   utilityDeviceKind: UtilityDeviceKind;
   utilityVisibility: Record<UtilityKind, boolean>;
@@ -87,6 +88,12 @@ interface EditorState {
   detachUtilityDeviceFromWall: (id: string) => void;
   duplicateUtilityDevice: (id: string) => void;
   removeUtilityDevice: (id: string) => void;
+  addUtilityRiserAt: (x: number, z: number) => void;
+  updateUtilityRiser: (id: string, patch: Partial<PlanUtilityRiser>) => void;
+  connectUtilityRiser: (id: string, endpoint: 'from' | 'to', routeId?: string) => void;
+  autoConnectUtilityRiser: (id: string) => void;
+  duplicateUtilityRiser: (id: string) => void;
+  removeUtilityRiser: (id: string) => void;
   completePolygon: () => void;
   cancelPolygon: () => void;
   updatePolygonVertex: (id: string, index: number, patch: { x?: number; z?: number }) => void;
@@ -145,7 +152,7 @@ interface EditorState {
   endHistoryBatch: () => void;
 }
 
-type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'walls' | 'wallOpenings' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'utilities' | 'utilityDevices' | 'activeFloorId' | 'showAllFloors'>;
+type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'walls' | 'wallOpenings' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'utilities' | 'utilityDevices' | 'utilityRisers' | 'activeFloorId' | 'showAllFloors'>;
 
 const historyPast: HistorySnapshot[] = [];
 const historyFuture: HistorySnapshot[] = [];
@@ -290,6 +297,20 @@ function normalizedUtilityDevice(device: PlanUtilityDevice): PlanUtilityDevice {
     rotation: radians(normalizeDegrees(device.rotation * 180 / Math.PI)), rating: clamp(device.rating, 0.1, 1_000) };
 }
 
+function normalizedUtilityRiser(riser: PlanUtilityRiser): PlanUtilityRiser {
+  return { ...riser, name: cleanText(riser.name, 80) || `${UTILITY_KINDS[riser.kind].label} · стояк`,
+    x: clamp(riser.x, -200, 200), z: clamp(riser.z, -200, 200), diameter: clamp(riser.diameter, 0.005, 0.5) };
+}
+
+function adjacentFloorPair(floors: PlanFloor[], activeFloorId: string) {
+  const ordered = [...floors].sort((left, right) => left.elevation - right.elevation);
+  const index = ordered.findIndex((floor) => floor.id === activeFloorId);
+  if (index < 0 || ordered.length < 2) return undefined;
+  const from = index < ordered.length - 1 ? ordered[index] : ordered[index - 1];
+  const to = index < ordered.length - 1 ? ordered[index + 1] : ordered[index];
+  return from && to ? { from, to } : undefined;
+}
+
 function fitOpeningToRoom(opening: WallOpening, room: PlanRoom): WallOpening | undefined {
   const vertices = roomVertices(room); const start = vertices[opening.wallIndex]; const end = vertices[(opening.wallIndex + 1) % vertices.length];
   if (!start || !end || room.wallHeight < 0.34) return undefined;
@@ -339,6 +360,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   modelInstances: initialProject.modelInstances,
   utilities: initialProject.utilities,
   utilityDevices: initialProject.utilityDevices,
+  utilityRisers: initialProject.utilityRisers,
   utilityKind: 'electric',
   utilityDeviceKind: 'outlet',
   utilityVisibility: { electric: true, water: true, heating: true },
@@ -513,7 +535,11 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     if (Math.hypot(route.endX - route.startX, route.endZ - route.startZ) < 0.1) return { message: 'Длина трассы должна быть не меньше 0,1 м' };
     const utilityDevices = state.utilityDevices.map((device) => device.routeId === id && UTILITY_DEVICE_KINDS[device.kind].utilityKind !== kind
       ? { ...device, routeId: undefined } : device);
-    return { utilities: state.utilities.map((item) => item.id === id ? route : item), utilityDevices,
+    const utilityRisers = state.utilityRisers.map((riser) => {
+      if (riser.kind === kind || riser.fromRouteId !== id && riser.toRouteId !== id) return riser;
+      return { ...riser, ...(riser.fromRouteId === id ? { fromRouteId: undefined } : {}), ...(riser.toRouteId === id ? { toRouteId: undefined } : {}) };
+    });
+    return { utilities: state.utilities.map((item) => item.id === id ? route : item), utilityDevices, utilityRisers,
       utilityVisibility: { ...state.utilityVisibility, [kind]: true } };
   }),
   duplicateUtility: (id) => set((state) => {
@@ -524,6 +550,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   }),
   removeUtility: (id) => set((state) => ({ utilities: state.utilities.filter((route) => route.id !== id),
     utilityDevices: state.utilityDevices.map((device) => device.routeId === id ? { ...device, routeId: undefined } : device),
+    utilityRisers: state.utilityRisers.map((riser) => riser.fromRouteId === id || riser.toRouteId === id ? { ...riser,
+      ...(riser.fromRouteId === id ? { fromRouteId: undefined } : {}), ...(riser.toRouteId === id ? { toRouteId: undefined } : {}) } : riser),
     selection: state.selection?.kind === 'utility' && state.selection.id === id ? null : state.selection, message: 'Трасса удалена' })),
   setUtilityDeviceKind: (utilityDeviceKind) => set({ utilityDeviceKind }),
   addUtilityDeviceAt: (x, z) => set((state) => {
@@ -595,6 +623,60 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   }),
   removeUtilityDevice: (id) => set((state) => ({ utilityDevices: state.utilityDevices.filter((device) => device.id !== id),
     selection: state.selection?.kind === 'utility-device' && state.selection.id === id ? null : state.selection, message: 'Инженерная точка удалена' })),
+  addUtilityRiserAt: (x, z) => set((state) => {
+    if (state.tool !== 'utility-riser') return state;
+    const pair = adjacentFloorPair(state.floors, state.activeFloorId);
+    if (!pair) return { message: 'Для стояка нужны минимум два этажа' };
+    const pointX = snapToGrid(x); const pointZ = snapToGrid(z); const defaults = UTILITY_KINDS[state.utilityKind];
+    const fromRoute = nearestUtilityRouteOfKind(state.utilities, state.utilityKind, pair.from.id, pointX, pointZ);
+    const toRoute = nearestUtilityRouteOfKind(state.utilities, state.utilityKind, pair.to.id, pointX, pointZ);
+    const count = state.utilityRisers.filter((riser) => riser.kind === state.utilityKind).length + 1;
+    const riser = normalizedUtilityRiser({ id: newId('utility-riser'), name: `${defaults.label} · стояк ${count}`, kind: state.utilityKind,
+      x: pointX, z: pointZ, fromFloorId: pair.from.id, toFloorId: pair.to.id, diameter: defaults.defaultDiameter,
+      ...(fromRoute ? { fromRouteId: fromRoute.id } : {}), ...(toRoute ? { toRouteId: toRoute.id } : {}) });
+    const connectionCount = Number(Boolean(fromRoute)) + Number(Boolean(toRoute));
+    return { utilityRisers: [...state.utilityRisers, riser], utilityVisibility: { ...state.utilityVisibility, [riser.kind]: true },
+      selection: null, message: `Стояк создан · подключено этажей: ${connectionCount}/2` };
+  }),
+  updateUtilityRiser: (id, patch) => set((state) => {
+    const source = state.utilityRisers.find((riser) => riser.id === id); if (!source) return state;
+    const kind = patch.kind && ['electric', 'water', 'heating'].includes(patch.kind) ? patch.kind : source.kind;
+    const fromFloorId = patch.fromFloorId && state.floors.some((floor) => floor.id === patch.fromFloorId) ? patch.fromFloorId : source.fromFloorId;
+    const toFloorId = patch.toFloorId && state.floors.some((floor) => floor.id === patch.toFloorId) ? patch.toFloorId : source.toFloorId;
+    if (fromFloorId === toFloorId) return { message: 'Начало и конец стояка должны быть на разных этажах' };
+    let fromRouteId = source.fromRouteId; let toRouteId = source.toRouteId;
+    const fromRoute = fromRouteId ? state.utilities.find((route) => route.id === fromRouteId) : undefined;
+    const toRoute = toRouteId ? state.utilities.find((route) => route.id === toRouteId) : undefined;
+    if (fromRouteId && (!fromRoute || fromRoute.floorId !== fromFloorId || fromRoute.kind !== kind)) fromRouteId = undefined;
+    if (toRouteId && (!toRoute || toRoute.floorId !== toFloorId || toRoute.kind !== kind)) toRouteId = undefined;
+    const riser = normalizedUtilityRiser({ ...source, ...patch, id: source.id, kind, fromFloorId, toFloorId, fromRouteId, toRouteId });
+    return { utilityRisers: state.utilityRisers.map((item) => item.id === id ? riser : item), utilityVisibility: { ...state.utilityVisibility, [kind]: true } };
+  }),
+  connectUtilityRiser: (id, endpoint, routeId) => set((state) => {
+    const riser = state.utilityRisers.find((item) => item.id === id); if (!riser) return state;
+    const floorId = endpoint === 'from' ? riser.fromFloorId : riser.toFloorId;
+    const route = routeId ? state.utilities.find((item) => item.id === routeId) : undefined;
+    if (routeId && (!route || route.floorId !== floorId || route.kind !== riser.kind)) return { message: 'Эта трасса несовместима со стояком' };
+    const key = endpoint === 'from' ? 'fromRouteId' : 'toRouteId';
+    return { utilityRisers: state.utilityRisers.map((item) => item.id === id ? { ...item, [key]: routeId } : item),
+      message: route ? `Стояк подключён к «${route.name}»` : 'Подключение стояка снято' };
+  }),
+  autoConnectUtilityRiser: (id) => set((state) => {
+    const riser = state.utilityRisers.find((item) => item.id === id); if (!riser) return state;
+    const fromRoute = nearestUtilityRouteOfKind(state.utilities, riser.kind, riser.fromFloorId, riser.x, riser.z, 200);
+    const toRoute = nearestUtilityRouteOfKind(state.utilities, riser.kind, riser.toFloorId, riser.x, riser.z, 200);
+    if (!fromRoute && !toRoute) return { message: 'На этажах нет совместимых трасс' };
+    return { utilityRisers: state.utilityRisers.map((item) => item.id === id ? { ...item,
+      ...(fromRoute ? { fromRouteId: fromRoute.id } : {}), ...(toRoute ? { toRouteId: toRoute.id } : {}) } : item),
+      utilityVisibility: { ...state.utilityVisibility, [riser.kind]: true }, message: `Автоподключение стояка · этажей: ${Number(Boolean(fromRoute)) + Number(Boolean(toRoute))}/2` };
+  }),
+  duplicateUtilityRiser: (id) => set((state) => {
+    const source = state.utilityRisers.find((riser) => riser.id === id); if (!source) return state;
+    const copy = normalizedUtilityRiser({ ...source, id: newId('utility-riser'), name: `${source.name} — копия`.slice(0, 80), x: source.x + 0.5, z: source.z + 0.5 });
+    return { utilityRisers: [...state.utilityRisers, copy], selection: { kind: 'utility-riser', id: copy.id }, message: 'Стояк скопирован' };
+  }),
+  removeUtilityRiser: (id) => set((state) => ({ utilityRisers: state.utilityRisers.filter((riser) => riser.id !== id),
+    selection: state.selection?.kind === 'utility-riser' && state.selection.id === id ? null : state.selection, message: 'Стояк удалён' })),
   completePolygon: () => set((state) => {
     if (state.tool !== 'polygon') return state;
     const points = state.draftPolygon;
@@ -1026,7 +1108,9 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => ![...removedRoomIds].some((id) => key.startsWith(`${id}:wall:`)))),
       openings: state.openings.filter((opening) => !removedRoomIds.has(opening.roomId)),
       modelInstances: state.modelInstances.filter((model) => model.floorId !== state.activeFloorId),
-      utilities: state.utilities.filter((route) => route.floorId !== state.activeFloorId), utilityDevices: state.utilityDevices.filter((device) => device.floorId !== state.activeFloorId), activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
+      utilities: state.utilities.filter((route) => route.floorId !== state.activeFloorId), utilityDevices: state.utilityDevices.filter((device) => device.floorId !== state.activeFloorId),
+      utilityRisers: state.utilityRisers.filter((riser) => riser.fromFloorId !== state.activeFloorId && riser.toFloorId !== state.activeFloorId),
+      activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
   }),
   toggleAllFloors: () => set((state) => ({ showAllFloors: !state.showAllFloors })),
   toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
@@ -1159,6 +1243,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     else if (selection?.kind === 'partition') get().removeWall(selection.id);
     else if (selection?.kind === 'utility') get().removeUtility(selection.id);
     else if (selection?.kind === 'utility-device') get().removeUtilityDevice(selection.id);
+    else if (selection?.kind === 'utility-riser') get().removeUtilityRiser(selection.id);
     else if (selection?.kind === 'wall') get().clearWallFinish(selection.roomId, selection.wallIndex);
     else if (selection?.kind === 'group') set((state) => {
       const roomIds = new Set(selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
@@ -1179,13 +1264,13 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setCameraPreset: (cameraPreset) => set((state) => ({ cameraPreset, cameraRevision: state.cameraRevision + 1 })),
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
-    floors: project.floors, rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities, utilityDevices: project.utilityDevices,
+    floors: project.floors, rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities, utilityDevices: project.utilityDevices, utilityRisers: project.utilityRisers,
     activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
     draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
-      rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities, utilityDevices: project.utilityDevices,
+      rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances, utilities: project.utilities, utilityDevices: project.utilityDevices, utilityRisers: project.utilityRisers,
       activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false,
       draftUtilityStart: null, draftUtilityEnd: null, draftUtilitySegmentCount: 0, snapGuides: [], message: 'Демо-проект восстановлен' });
   },
@@ -1200,14 +1285,14 @@ function captureHistory(state: EditorState): HistorySnapshot {
   return {
     projectName: state.projectName, projectType: state.projectType, site: state.site, floors: state.floors,
     rooms: state.rooms, walls: state.walls, wallOpenings: state.wallOpenings, wallFinishes: state.wallFinishes, openings: state.openings, textures: state.textures, modelAssets: state.modelAssets,
-    modelInstances: state.modelInstances, utilities: state.utilities, utilityDevices: state.utilityDevices, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
+    modelInstances: state.modelInstances, utilities: state.utilities, utilityDevices: state.utilityDevices, utilityRisers: state.utilityRisers, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
   };
 }
 
 function sameHistory(left: HistorySnapshot, right: HistorySnapshot) {
   return left.projectName === right.projectName && left.projectType === right.projectType && left.site === right.site
     && left.floors === right.floors && left.rooms === right.rooms && left.walls === right.walls && left.wallOpenings === right.wallOpenings && left.wallFinishes === right.wallFinishes && left.openings === right.openings
-    && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances && left.utilities === right.utilities && left.utilityDevices === right.utilityDevices
+    && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances && left.utilities === right.utilities && left.utilityDevices === right.utilityDevices && left.utilityRisers === right.utilityRisers
     && left.activeFloorId === right.activeFloorId && left.showAllFloors === right.showAllFloors;
 }
 
@@ -1255,7 +1340,7 @@ function redoHistory() {
 lastHistorySnapshot = captureHistory(useEditorStore.getState());
 
 useEditorStore.subscribe(
-  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.utilities, state.utilityDevices, state.activeFloorId, state.showAllFloors] as const,
+  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.utilities, state.utilityDevices, state.utilityRisers, state.activeFloorId, state.showAllFloors] as const,
   () => {
     const current = captureHistory(useEditorStore.getState());
     if (restoringHistory) { restoringHistory = false; lastHistorySnapshot = current; return; }
@@ -1272,10 +1357,10 @@ useEditorStore.subscribe(
 if (typeof window !== 'undefined') {
   let saveTimer: number | undefined;
   useEditorStore.subscribe(
-    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.modelInstances, state.utilities, state.utilityDevices] as const,
-    ([name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices]) => {
+    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallOpenings, state.wallFinishes, state.openings, state.modelInstances, state.utilities, state.utilityDevices, state.utilityRisers] as const,
+    ([name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices, utilityRisers]) => {
       window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices })), 180);
+      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, walls, wallOpenings, wallFinishes, openings, modelInstances, utilities, utilityDevices, utilityRisers })), 180);
     },
     { equalityFn: shallow },
   );

@@ -22,6 +22,7 @@ export function TopBar({ onOpenTemplates, onOpenEstimate }: { onOpenTemplates: (
       modelInstances: store.modelInstances,
       utilities: store.utilities,
       utilityDevices: store.utilityDevices,
+      utilityRisers: store.utilityRisers,
     }));
     store.notify('Файл проекта сохранён');
   };

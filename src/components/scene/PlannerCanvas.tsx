@@ -17,6 +17,7 @@ import { SelectionTransform } from './SelectionTransform';
 import { StandaloneWallMesh } from './StandaloneWallMesh';
 import { UtilityRouteMesh } from './UtilityRouteMesh';
 import { UtilityDeviceMesh } from './UtilityDeviceMesh';
+import { UtilityRiserMesh } from './UtilityRiserMesh';
 
 function CameraController() {
   const camera = useThree((state) => state.camera);
@@ -206,6 +207,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const models = useEditorStore((state) => state.modelInstances);
   const utilities = useEditorStore((state) => state.utilities);
   const utilityDevices = useEditorStore((state) => state.utilityDevices);
+  const utilityRisers = useEditorStore((state) => state.utilityRisers);
   const utilityVisibility = useEditorStore((state) => state.utilityVisibility);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const showAllFloors = useEditorStore((state) => state.showAllFloors);
@@ -219,10 +221,12 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const previewWall = useEditorStore((state) => state.previewWall);
   const addUtilityPoint = useEditorStore((state) => state.addUtilityPoint);
   const addUtilityDeviceAt = useEditorStore((state) => state.addUtilityDeviceAt);
+  const addUtilityRiserAt = useEditorStore((state) => state.addUtilityRiserAt);
   const previewUtility = useEditorStore((state) => state.previewUtility);
   const completePolygon = useEditorStore((state) => state.completePolygon);
   const activeFloorElevation = floors.find((floor) => floor.id === activeFloorId)?.elevation ?? 0;
   const wallJoins = useMemo(() => wallJoinOffsetsMap(walls), [walls]);
+  const floorsById = useMemo(() => new Map(floors.map((floor) => [floor.id, floor])), [floors]);
   const utilitiesById = useMemo(() => new Map(utilities.map((route) => [route.id, route])), [utilities]);
   const resolvedUtilityDevices = useMemo(() => utilityDevices.map((device) => resolveUtilityDeviceMount(device, rooms, walls)), [rooms, utilityDevices, walls]);
 
@@ -289,6 +293,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
     else if (tool === 'wall') { event.stopPropagation(); addWallPoint(event.point.x, event.point.z); }
     else if (tool === 'utility') { event.stopPropagation(); addUtilityPoint(event.point.x, event.point.z); }
     else if (tool === 'utility-device') { event.stopPropagation(); addUtilityDeviceAt(event.point.x, event.point.z); }
+    else if (tool === 'utility-riser') { event.stopPropagation(); addUtilityRiserAt(event.point.x, event.point.z); }
     else if (!event.shiftKey) select(null);
   };
   const onGroundPointerMove = (event: ThreeEvent<PointerEvent>) => {
@@ -330,6 +335,8 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
         {resolvedUtilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} route={device.routeId ? utilitiesById.get(device.routeId) : undefined} />)}
       </group>;
     })}
+    {utilityRisers.filter((riser) => utilityVisibility[riser.kind] && (showAllFloors || riser.fromFloorId === activeFloorId || riser.toFloorId === activeFloorId))
+      .map((riser) => <UtilityRiserMesh active={riser.fromFloorId === activeFloorId || riser.toFloorId === activeFloorId} floorsById={floorsById} key={riser.id} riser={riser} routesById={utilitiesById} />)}
     <DraftPolygon />
     <DraftWall />
     <DraftUtility />
@@ -354,6 +361,7 @@ export function PlannerCanvas() {
     <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> следующая точка · в полях <kbd>Enter</kbd> добавить · <kbd>Esc</kbd> завершить</>
       : tool === 'utility' ? <><kbd>ЛКМ</kbd> следующая точка трассы · <kbd>Enter / Esc</kbd> завершить</>
       : tool === 'utility-device' ? <><kbd>ЛКМ</kbd> разместить инженерную точку · <kbd>Esc</kbd> выбор</>
+      : tool === 'utility-riser' ? <><kbd>ЛКМ</kbd> разместить стояк между соседними этажами · <kbd>Esc</kbd> выбор</>
       : cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</>
         : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
   </div>;

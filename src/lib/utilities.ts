@@ -28,6 +28,10 @@ export function utilityRouteProjection(route: Pick<PlanUtilityRoute, 'startX' | 
 
 export function nearestUtilityRoute(routes: PlanUtilityRoute[], deviceKind: UtilityDeviceKind, floorId: string, x: number, z: number, maximumDistance = 1.5) {
   const utilityKind = UTILITY_DEVICE_KINDS[deviceKind].utilityKind;
+  return nearestUtilityRouteOfKind(routes, utilityKind, floorId, x, z, maximumDistance);
+}
+
+export function nearestUtilityRouteOfKind(routes: PlanUtilityRoute[], utilityKind: UtilityKind, floorId: string, x: number, z: number, maximumDistance = 1.5) {
   let nearest: PlanUtilityRoute | undefined; let nearestDistance = maximumDistance;
   for (const route of routes) {
     if (route.floorId !== floorId || route.kind !== utilityKind) continue;

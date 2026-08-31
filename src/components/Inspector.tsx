@@ -198,6 +198,55 @@ function UtilityInspector({ id }: { id: string }) {
   </>;
 }
 
+function UtilityRiserInspector({ id }: { id: string }) {
+  const riser = useEditorStore((state) => state.utilityRisers.find((item) => item.id === id));
+  const floors = useEditorStore((state) => state.floors);
+  const routes = useEditorStore((state) => state.utilities);
+  const updateUtilityRiser = useEditorStore((state) => state.updateUtilityRiser);
+  const connectUtilityRiser = useEditorStore((state) => state.connectUtilityRiser);
+  const autoConnectUtilityRiser = useEditorStore((state) => state.autoConnectUtilityRiser);
+  const duplicateUtilityRiser = useEditorStore((state) => state.duplicateUtilityRiser);
+  const removeUtilityRiser = useEditorStore((state) => state.removeUtilityRiser);
+  if (!riser) return <EmptyInspector />;
+  const orderedFloors = [...floors].sort((left, right) => left.elevation - right.elevation);
+  const fromFloor = floors.find((floor) => floor.id === riser.fromFloorId);
+  const toFloor = floors.find((floor) => floor.id === riser.toFloorId);
+  const height = Math.abs((toFloor?.elevation ?? 0) - (fromFloor?.elevation ?? 0));
+  const endpoint = (side: 'from' | 'to') => {
+    const floorId = side === 'from' ? riser.fromFloorId : riser.toFloorId;
+    const routeId = side === 'from' ? riser.fromRouteId : riser.toRouteId;
+    const compatibleRoutes = routes.filter((route) => route.floorId === floorId && route.kind === riser.kind);
+    const route = routeId ? compatibleRoutes.find((item) => item.id === routeId) : undefined;
+    const distance = route ? utilityRouteProjection(route, riser.x, riser.z).distance : undefined;
+    return { floorId, routeId, compatibleRoutes, route, distance };
+  };
+  const from = endpoint('from'); const to = endpoint('to');
+  const renderConnection = (side: 'from' | 'to', connection: ReturnType<typeof endpoint>, label: string) => <div className="riser-connection-card">
+    <b>{label}</b><label className="connection-field"><span>Трасса</span><select aria-label={`${label} · трасса`} onChange={(event) => connectUtilityRiser(riser.id, side, event.target.value || undefined)} value={connection.routeId ?? ''}><option value="">Без подключения</option>{connection.compatibleRoutes.map((route) => <option key={route.id} value={route.id}>{route.name}</option>)}</select></label>
+    <div className={`connection-status${connection.route ? ' connected' : ' warning'}`}><span /><div><b>{connection.route ? 'Подключено' : 'Нет подключения'}</b><small>{connection.route && connection.distance !== undefined ? `${connection.route.name} · отвод ${connection.distance.toFixed(2)} м` : connection.compatibleRoutes.length ? 'Выберите трассу' : 'Совместимых трасс на этаже нет'}</small></div></div>
+  </div>;
+  return <>
+    <div className="inspector-head"><span className="selection-tag">Межэтажный стояк</span><input aria-label="Название стояка" maxLength={80} onChange={(event) => updateUtilityRiser(riser.id, { name: event.target.value })} value={riser.name} /></div>
+    <section className="inspector-section"><div className="inspector-title"><span>Тип сети</span><Cable size={16} /></div>
+      <div aria-label="Тип инженерного стояка" className="utility-kind-tabs" role="group">{(Object.keys(UTILITY_KINDS) as UtilityKind[]).map((kind) => <button aria-pressed={riser.kind === kind} className={riser.kind === kind ? 'active' : ''} key={kind} onClick={() => updateUtilityRiser(riser.id, { kind, diameter: UTILITY_KINDS[kind].defaultDiameter })} type="button"><span style={{ background: UTILITY_KINDS[kind].color }} />{UTILITY_KINDS[kind].shortLabel}</button>)}</div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Диапазон этажей</span><Layers3 size={16} /></div>
+      <label className="connection-field"><span>Начальный этаж</span><select aria-label="Начальный этаж стояка" onChange={(event) => updateUtilityRiser(riser.id, { fromFloorId: event.target.value })} value={riser.fromFloorId}>{orderedFloors.map((floor) => <option disabled={floor.id === riser.toFloorId} key={floor.id} value={floor.id}>{floor.name} · {floor.elevation.toFixed(1)} м</option>)}</select></label>
+      <label className="connection-field"><span>Конечный этаж</span><select aria-label="Конечный этаж стояка" onChange={(event) => updateUtilityRiser(riser.id, { toFloorId: event.target.value })} value={riser.toFloorId}>{orderedFloors.map((floor) => <option disabled={floor.id === riser.fromFloorId} key={floor.id} value={floor.id}>{floor.name} · {floor.elevation.toFixed(1)} м</option>)}</select></label>
+      <div className="utility-summary"><span style={{ background: UTILITY_KINDS[riser.kind].color }} /><b>Вертикальный участок</b><small>{height.toFixed(2)} м</small></div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Положение</span><Move3D size={16} /></div>
+      <div className="field-row"><NumericField label="X" max={200} min={-200} onChange={(x) => updateUtilityRiser(riser.id, { x })} unit="м" value={riser.x} /><NumericField label="Z" max={200} min={-200} onChange={(z) => updateUtilityRiser(riser.id, { z })} unit="м" value={riser.z} /></div>
+      <NumericField ariaLabel="Диаметр стояка" label="Диаметр" max={500} min={5} onChange={(diameter) => updateUtilityRiser(riser.id, { diameter: diameter / 1000 })} step={1} unit="мм" value={riser.diameter * 1000} />
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Подключение этажей</span><Link2 size={16} /></div>
+      {renderConnection('from', from, fromFloor?.name ?? 'Начальный этаж')}{renderConnection('to', to, toFloor?.name ?? 'Конечный этаж')}
+      <button className="connection-auto" disabled={!from.compatibleRoutes.length && !to.compatibleRoutes.length} onClick={() => autoConnectUtilityRiser(riser.id)} type="button"><Link2 size={14} /> Подключить ближайшие</button>
+    </section>
+    <div className="inspector-actions"><button onClick={() => duplicateUtilityRiser(riser.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeUtilityRiser(riser.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
+  </>;
+}
+
 function UtilityDeviceInspector({ id }: { id: string }) {
   const device = useEditorStore((state) => state.utilityDevices.find((item) => item.id === id));
   const routes = useEditorStore((state) => state.utilities);
@@ -296,5 +345,5 @@ function ProjectClipboardPanel({ selection }: { selection: Selection | null }) {
 
 export function Inspector() {
   const selection = useEditorStore((state) => state.selection);
-  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'utility' ? <UtilityInspector id={selection.id} /> : selection.kind === 'utility-device' ? <UtilityDeviceInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
+  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'utility' ? <UtilityInspector id={selection.id} /> : selection.kind === 'utility-device' ? <UtilityDeviceInspector id={selection.id} /> : selection.kind === 'utility-riser' ? <UtilityRiserInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
 }

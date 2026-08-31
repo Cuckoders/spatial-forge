@@ -4,7 +4,7 @@ import { Armchair, BedDouble, Box, BrickWall, Cable, Cuboid, Droplets, Eye, EyeO
 import { deletePersistedAsset, persistAsset } from '../lib/assetStorage';
 import { createModelAsset, createTextureAsset } from '../lib/files';
 import { useEditorStore } from '../store/editorStore';
-import { UTILITY_DEVICE_KINDS } from '../lib/utilities';
+import { UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
 import type { BuiltInModelKind, EditorTool, UtilityDeviceKind, UtilityKind } from '../types';
 
 const tools: Array<{ id: EditorTool; label: string; hint: string; icon: typeof MousePointer2 }> = [
@@ -49,8 +49,10 @@ export function ToolPanel() {
   const utilityVisibility = useEditorStore((state) => state.utilityVisibility);
   const utilities = useEditorStore((state) => state.utilities);
   const utilityDevices = useEditorStore((state) => state.utilityDevices);
+  const utilityRisers = useEditorStore((state) => state.utilityRisers);
   const utilityDeviceKind = useEditorStore((state) => state.utilityDeviceKind);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
+  const floorCount = useEditorStore((state) => state.floors.length);
   const textures = useEditorStore((state) => state.textures);
   const modelAssets = useEditorStore((state) => state.modelAssets);
   const setTool = useEditorStore((state) => state.setTool);
@@ -65,7 +67,10 @@ export function ToolPanel() {
   const addCustomModel = useEditorStore((state) => state.addCustomModel);
   const notify = useEditorStore((state) => state.notify);
   const activeUtilityDevices = utilityDevices.filter((device) => device.floorId === activeFloorId);
+  const activeUtilityRisers = utilityRisers.filter((riser) => riser.fromFloorId === activeFloorId || riser.toFloorId === activeFloorId);
   const unconnectedDeviceCount = activeUtilityDevices.filter((device) => !device.routeId).length;
+  const unconnectedRiserEndpointCount = activeUtilityRisers.reduce((count, riser) => count
+    + Number(riser.fromFloorId === activeFloorId && !riser.fromRouteId) + Number(riser.toFloorId === activeFloorId && !riser.toRouteId), 0);
 
   const uploadTexture = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = '';
@@ -114,10 +119,13 @@ export function ToolPanel() {
             <button aria-label={`${visible ? 'Скрыть' : 'Показать'}: ${item.label}`} aria-pressed={visible} className={`utility-visibility${visible ? ' visible' : ''}`} onClick={() => toggleUtilityVisibility(item.id)} title={`${visible ? 'Скрыть' : 'Показать'} трассы`} type="button">{visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
           </div>; })}
         </div>
+        <div className="utility-device-heading"><b>Стояки между этажами</b><span>{activeUtilityRisers.length}</span></div>
+        <div className="utility-riser-grid">{utilityKinds.map((item) => { const count = activeUtilityRisers.filter((riser) => riser.kind === item.id).length; return <button aria-pressed={tool === 'utility-riser' && utilityKind === item.id} className={tool === 'utility-riser' && utilityKind === item.id ? 'active' : ''} disabled={floorCount < 2} key={item.id} onClick={() => { setUtilityKind(item.id); setTool('utility-riser'); }} type="button"><MoveUpRight size={14} style={{ color: item.color }} /><b>{item.id === 'electric' ? 'Эл. стояк' : item.id === 'water' ? 'Вода' : 'Тепло'}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
+        {unconnectedRiserEndpointCount ? <div className="connection-audit"><span>{unconnectedRiserEndpointCount}</span><div><b>Концы стояков без связи</b><small>Подключите трассы текущего этажа</small></div></div> : activeUtilityRisers.length ? <div className="connection-audit ready"><span>✓</span><div><b>Стояки подключены</b><small>Текущий этаж связан с трассами</small></div></div> : null}
         <div className="utility-device-heading"><b>Точки подключения</b><span>{activeUtilityDevices.length}</span></div>
         <div className="utility-device-grid">{utilityDeviceKinds.map((item) => { const Icon = item.icon; const style = UTILITY_DEVICE_KINDS[item.id]; const count = utilityDevices.filter((device) => device.floorId === activeFloorId && device.kind === item.id).length; return <button aria-pressed={tool === 'utility-device' && utilityDeviceKind === item.id} className={tool === 'utility-device' && utilityDeviceKind === item.id ? 'active' : ''} key={item.id} onClick={() => { setUtilityDeviceKind(item.id); setTool('utility-device'); }} type="button"><span style={{ color: style.color }}><Icon size={15} /></span><b>{style.shortLabel}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
         {unconnectedDeviceCount ? <div className="connection-audit"><span>{unconnectedDeviceCount}</span><div><b>Без подключения</b><small>Отмечены красным в сцене</small></div></div> : activeUtilityDevices.length ? <div className="connection-audit ready"><span>✓</span><div><b>Все точки подключены</b><small>Связи с трассами корректны</small></div></div> : null}
-        <p className="panel-note">{tool === 'utility' ? `${utilitySegmentCount ? `Продолжайте трассу · сегментов ${utilitySegmentCount}` : 'Укажите начальную точку'}. ЛКМ — следующая точка, Enter или Escape — завершить.` : tool === 'utility-device' ? `Размещайте «${UTILITY_DEVICE_KINDS[utilityDeviceKind].label}» по сетке. После установки параметры доступны справа.` : 'Выберите трассу или точку подключения и разместите её на активном этаже.'}</p>
+        <p className="panel-note">{tool === 'utility' ? `${utilitySegmentCount ? `Продолжайте трассу · сегментов ${utilitySegmentCount}` : 'Укажите начальную точку'}. ЛКМ — следующая точка, Enter или Escape — завершить.` : tool === 'utility-device' ? `Размещайте «${UTILITY_DEVICE_KINDS[utilityDeviceKind].label}» по сетке. После установки параметры доступны справа.` : tool === 'utility-riser' ? `Размещайте стояк «${UTILITY_KINDS[utilityKind].label}» между активным и соседним этажом.` : 'Выберите трассу, стояк или точку подключения и разместите их на активном этаже.'}</p>
       </section>
 
       <section>

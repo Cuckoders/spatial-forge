@@ -1,5 +1,5 @@
 export type ProjectType = 'apartment' | 'plot';
-export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon' | 'wall' | 'utility' | 'utility-device';
+export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon' | 'wall' | 'utility' | 'utility-device' | 'utility-riser';
 export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
@@ -163,6 +163,19 @@ export interface PlanUtilityDevice {
   wallMount?: UtilityWallMount | undefined;
 }
 
+export interface PlanUtilityRiser {
+  id: string;
+  name: string;
+  kind: UtilityKind;
+  x: number;
+  z: number;
+  fromFloorId: string;
+  toFloorId: string;
+  diameter: number;
+  fromRouteId?: string | undefined;
+  toRouteId?: string | undefined;
+}
+
 export type ObjectSelection =
   | { kind: 'room'; id: string }
   | { kind: 'model'; id: string };
@@ -174,7 +187,8 @@ export type Selection =
   | { kind: 'wall'; id: string; roomId: string; wallIndex: number }
   | { kind: 'partition'; id: string }
   | { kind: 'utility'; id: string }
-  | { kind: 'utility-device'; id: string };
+  | { kind: 'utility-device'; id: string }
+  | { kind: 'utility-riser'; id: string };
 
 export interface ProjectDocument {
   version: 1;
@@ -190,4 +204,5 @@ export interface ProjectDocument {
   modelInstances: ModelInstance[];
   utilities: PlanUtilityRoute[];
   utilityDevices: PlanUtilityDevice[];
+  utilityRisers: PlanUtilityRiser[];
 }

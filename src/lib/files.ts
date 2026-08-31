@@ -2,7 +2,7 @@ import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geo
 import { createDefaultRoofSettings, createDefaultSlabSettings } from './floorStructures';
 import { MAX_OPENINGS_PER_WALL, openingsOverlap, type OpeningLike } from './openings';
 import { UTILITY_DEVICE_KINDS } from './utilities';
-import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, UtilityWallMount, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRiser, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, UtilityKind, UtilityWallMount, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
 export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024;
@@ -113,6 +113,20 @@ function readUtility(value: unknown, floorIds: Set<string>): PlanUtilityRoute | 
     startZ: value.startZ, endX: value.endX, endZ: value.endZ, elevation: value.elevation, diameter: value.diameter };
 }
 
+function readUtilityRiser(value: unknown, floorIds: Set<string>): PlanUtilityRiser | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.fromFloorId !== 'string'
+    || typeof value.toFloorId !== 'string' || value.fromFloorId === value.toFloorId || !floorIds.has(value.fromFloorId) || !floorIds.has(value.toFloorId)
+    || !['electric', 'water', 'heating'].includes(String(value.kind)) || !finite(value.x, -200, 200) || !finite(value.z, -200, 200)
+    || !finite(value.diameter, 0.005, 0.5)
+    || (value.fromRouteId !== undefined && (typeof value.fromRouteId !== 'string' || !idPattern.test(value.fromRouteId)))
+    || (value.toRouteId !== undefined && (typeof value.toRouteId !== 'string' || !idPattern.test(value.toRouteId)))) return undefined;
+  const name = text(value.name, 80); if (!name) return undefined;
+  return { id: value.id, name, kind: value.kind as UtilityKind, x: value.x, z: value.z, fromFloorId: value.fromFloorId,
+    toFloorId: value.toFloorId, diameter: value.diameter,
+    ...(typeof value.fromRouteId === 'string' ? { fromRouteId: value.fromRouteId } : {}),
+    ...(typeof value.toRouteId === 'string' ? { toRouteId: value.toRouteId } : {}) };
+}
+
 function readUtilityWallMount(value: unknown): UtilityWallMount | null | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value) || !['room', 'partition'].includes(String(value.kind)) || typeof value.sourceId !== 'string' || !idPattern.test(value.sourceId)
@@ -190,7 +204,8 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
     || (Array.isArray(value.openings) && value.openings.length > 1_000) || !Array.isArray(value.modelInstances)
     || value.modelInstances.length > 200 || (value.utilities !== undefined && !Array.isArray(value.utilities))
     || (Array.isArray(value.utilities) && value.utilities.length > 2_000) || (value.utilityDevices !== undefined && !Array.isArray(value.utilityDevices))
-    || (Array.isArray(value.utilityDevices) && value.utilityDevices.length > 2_000)) throw new Error('Файл планировки имеет неподдерживаемую структуру.');
+    || (Array.isArray(value.utilityDevices) && value.utilityDevices.length > 2_000) || (value.utilityRisers !== undefined && !Array.isArray(value.utilityRisers))
+    || (Array.isArray(value.utilityRisers) && value.utilityRisers.length > 1_000)) throw new Error('Файл планировки имеет неподдерживаемую структуру.');
   const name = text(value.name, 80);
   if (!name) throw new Error('В файле отсутствует название проекта.');
   const floors = value.floors.map(readFloor);
@@ -256,6 +271,10 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (utilityDevices.some((device) => !device)) throw new Error('В файле есть некорректная инженерная точка.');
   const validUtilityDevices = utilityDevices as PlanUtilityDevice[];
   if (new Set(validUtilityDevices.map((device) => device.id)).size !== validUtilityDevices.length) throw new Error('Идентификаторы инженерных точек повторяются.');
+  const utilityRisers = (Array.isArray(value.utilityRisers) ? value.utilityRisers : []).map((riser) => readUtilityRiser(riser, floorIds));
+  if (utilityRisers.some((riser) => !riser)) throw new Error('В файле есть некорректный инженерный стояк.');
+  const validUtilityRisers = utilityRisers as PlanUtilityRiser[];
+  if (new Set(validUtilityRisers.map((riser) => riser.id)).size !== validUtilityRisers.length) throw new Error('Идентификаторы инженерных стояков повторяются.');
   const utilitiesById = new Map(validUtilities.map((route) => [route.id, route]));
   for (const device of validUtilityDevices) {
     if (!device.routeId) continue;
@@ -271,18 +290,28 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
       throw new Error('Инженерная точка привязана к отсутствующей стене.');
     }
   }
+  const floorsById = new Map(validFloors.map((floor) => [floor.id, floor]));
+  for (const riser of validUtilityRisers) {
+    const fromFloor = floorsById.get(riser.fromFloorId); const toFloor = floorsById.get(riser.toFloorId);
+    if (!fromFloor || !toFloor) throw new Error('Инженерный стояк имеет некорректный диапазон этажей.');
+    for (const [routeId, floorId] of [[riser.fromRouteId, riser.fromFloorId], [riser.toRouteId, riser.toFloorId]] as const) {
+      if (!routeId) continue;
+      const route = utilitiesById.get(routeId);
+      if (!route || route.floorId !== floorId || route.kind !== riser.kind) throw new Error('Инженерный стояк привязан к несовместимой трассе.');
+    }
+  }
   return { version: 1, name, projectType: value.projectType as ProjectType,
     site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms, walls: validWalls, wallOpenings: validWallOpenings,
-    wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[], utilities: validUtilities, utilityDevices: validUtilityDevices };
+    wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[], utilities: validUtilities, utilityDevices: validUtilityDevices, utilityRisers: validUtilityRisers };
 }
 
 const wallIdForOpening = (opening: Pick<WallOpening, 'roomId' | 'wallIndex'>) => `${opening.roomId}:wall:${opening.wallIndex}`;
 
-export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; walls: PlanWall[]; wallOpenings: StandaloneWallOpening[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[]; utilities?: PlanUtilityRoute[]; utilityDevices?: PlanUtilityDevice[] }): ProjectDocument {
+export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; walls: PlanWall[]; wallOpenings: StandaloneWallOpening[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[]; utilities?: PlanUtilityRoute[]; utilityDevices?: PlanUtilityDevice[]; utilityRisers?: PlanUtilityRiser[] }): ProjectDocument {
   const wallFinishes = Object.fromEntries(Object.entries(input.wallFinishes).map(([id, finish]) => [id, { color: finish.color, ...(finish.textureId && uuidPattern.test(finish.textureId) ? { textureId: finish.textureId } : {}) }]));
   return { version: 1, name: input.name, projectType: input.projectType, site: input.site, floors: input.floors,
     rooms: input.rooms, walls: input.walls, wallOpenings: input.wallOpenings, wallFinishes, openings: input.openings, modelInstances: input.modelInstances,
-    utilities: input.utilities ?? [], utilityDevices: input.utilityDevices ?? [] };
+    utilities: input.utilities ?? [], utilityDevices: input.utilityDevices ?? [], utilityRisers: input.utilityRisers ?? [] };
 }
 
 export function saveAutosave(document: ProjectDocument) {

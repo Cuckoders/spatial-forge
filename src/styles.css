@@ -82,6 +82,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .utility-device-grid button b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 7px; }
 .utility-device-grid button small { position: absolute; top: 3px; right: 4px; color: var(--muted); font: 700 6px "DM Mono", monospace; }
 .utility-device-grid button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.utility-riser-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.utility-riser-grid button { position: relative; min-width: 0; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: white; cursor: pointer; }
+.utility-riser-grid button b { overflow: hidden; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.utility-riser-grid button small { position: absolute; top: 2px; right: 4px; color: var(--muted); font: 700 6px "DM Mono", monospace; }
+.utility-riser-grid button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.utility-riser-grid button:disabled { background: #e7e8e2; color: #9da19b; cursor: default; }
 .connection-audit { min-height: 36px; display: grid; grid-template-columns: 24px minmax(0,1fr); align-items: center; gap: 7px; margin-top: 5px; padding: 5px 7px; border: 1px solid #e7b4a8; border-radius: 7px; background: #fff2ed; }
 .connection-audit > span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: #d8583f; color: white; font: 800 8px "DM Mono", monospace; }
 .connection-audit div { display: grid; gap: 1px; }
@@ -284,6 +290,8 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .connection-status.connected > span { background: #7b8a35; }
 .connection-auto { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--ink); border-radius: 7px; background: var(--ink); color: white; font-size: 8px; font-weight: 700; cursor: pointer; }
 .connection-auto:disabled { border-color: var(--line); background: #e7e8e2; color: #9da19b; cursor: default; }
+.riser-connection-card { display: grid; gap: 5px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: #f7f7f2; }
+.riser-connection-card > b { font-size: 8px; }
 .wall-mount-status { min-height: 40px; display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: #f1f2ed; color: var(--muted); }
 .wall-mount-status > div { display: grid; gap: 2px; }
 .wall-mount-status b { color: var(--ink); font-size: 8px; }
