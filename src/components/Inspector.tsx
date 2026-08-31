@@ -247,6 +247,37 @@ function UtilityRiserInspector({ id }: { id: string }) {
   </>;
 }
 
+function UtilityJunctionInspector({ id }: { id: string }) {
+  const junction = useEditorStore((state) => state.utilityJunctions.find((item) => item.id === id));
+  const routes = useEditorStore((state) => state.utilities);
+  const updateUtilityJunction = useEditorStore((state) => state.updateUtilityJunction);
+  const toggleUtilityJunctionRoute = useEditorStore((state) => state.toggleUtilityJunctionRoute);
+  const autoConnectUtilityJunction = useEditorStore((state) => state.autoConnectUtilityJunction);
+  const duplicateUtilityJunction = useEditorStore((state) => state.duplicateUtilityJunction);
+  const removeUtilityJunction = useEditorStore((state) => state.removeUtilityJunction);
+  if (!junction) return <EmptyInspector />;
+  const compatibleRoutes = routes.filter((route) => route.floorId === junction.floorId && route.kind === junction.kind)
+    .map((route) => ({ route, distance: utilityRouteProjection(route, junction.x, junction.z).distance }))
+    .sort((left, right) => left.distance - right.distance);
+  const connectedCount = junction.routeIds.length;
+  return <>
+    <div className="inspector-head"><span className="selection-tag">Узел инженерной сети</span><input aria-label="Название узла сети" maxLength={80} onChange={(event) => updateUtilityJunction(junction.id, { name: event.target.value })} value={junction.name} /></div>
+    <section className="inspector-section"><div className="inspector-title"><span>Тип сети</span><Cable size={16} /></div>
+      <div aria-label="Тип узла инженерной сети" className="utility-kind-tabs" role="group">{(Object.keys(UTILITY_KINDS) as UtilityKind[]).map((kind) => <button aria-pressed={junction.kind === kind} className={junction.kind === kind ? 'active' : ''} key={kind} onClick={() => updateUtilityJunction(junction.id, { kind, diameter: UTILITY_KINDS[kind].defaultDiameter, elevation: UTILITY_KINDS[kind].defaultElevation })} type="button"><span style={{ background: UTILITY_KINDS[kind].color }} />{UTILITY_KINDS[kind].shortLabel}</button>)}</div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Положение и размер</span><Move3D size={16} /></div>
+      <div className="field-row"><NumericField label="X" max={200} min={-200} onChange={(x) => updateUtilityJunction(junction.id, { x })} unit="м" value={junction.x} /><NumericField label="Z" max={200} min={-200} onChange={(z) => updateUtilityJunction(junction.id, { z })} unit="м" value={junction.z} /></div>
+      <div className="field-row"><NumericField ariaLabel="Высота узла" label="Высота" max={12} min={0.01} onChange={(elevation) => updateUtilityJunction(junction.id, { elevation })} step={0.01} unit="м" value={junction.elevation} /><NumericField ariaLabel="Диаметр узла" label="Диаметр" max={500} min={5} onChange={(diameter) => updateUtilityJunction(junction.id, { diameter: diameter / 1000 })} step={1} unit="мм" value={junction.diameter * 1000} /></div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Ветви узла</span><Link2 size={16} /></div>
+      <div className={`connection-status${connectedCount >= 2 ? ' connected' : ' warning'}`}><span /><div><b>{connectedCount >= 2 ? 'Ветвление сформировано' : 'Недостаточно трасс'}</b><small>{connectedCount ? `Подключено: ${connectedCount} из ${compatibleRoutes.length}` : compatibleRoutes.length ? 'Выберите минимум две трассы' : 'Совместимых трасс на этаже нет'}</small></div></div>
+      <div className="junction-route-list">{compatibleRoutes.map(({ route, distance }) => <label key={route.id}><input aria-label={`Подключить трассу ${route.name}`} checked={junction.routeIds.includes(route.id)} onChange={() => toggleUtilityJunctionRoute(junction.id, route.id)} type="checkbox" /><span style={{ background: UTILITY_KINDS[route.kind].color }} /><b>{route.name}</b><small>{distance.toFixed(2)} м</small></label>)}</div>
+      <button className="connection-auto" disabled={!compatibleRoutes.length} onClick={() => autoConnectUtilityJunction(junction.id)} type="button"><Link2 size={14} /> Подключить трассы рядом</button>
+    </section>
+    <div className="inspector-actions"><button onClick={() => duplicateUtilityJunction(junction.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeUtilityJunction(junction.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
+  </>;
+}
+
 function UtilityDeviceInspector({ id }: { id: string }) {
   const device = useEditorStore((state) => state.utilityDevices.find((item) => item.id === id));
   const routes = useEditorStore((state) => state.utilities);
@@ -345,5 +376,5 @@ function ProjectClipboardPanel({ selection }: { selection: Selection | null }) {
 
 export function Inspector() {
   const selection = useEditorStore((state) => state.selection);
-  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'utility' ? <UtilityInspector id={selection.id} /> : selection.kind === 'utility-device' ? <UtilityDeviceInspector id={selection.id} /> : selection.kind === 'utility-riser' ? <UtilityRiserInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
+  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'utility' ? <UtilityInspector id={selection.id} /> : selection.kind === 'utility-device' ? <UtilityDeviceInspector id={selection.id} /> : selection.kind === 'utility-riser' ? <UtilityRiserInspector id={selection.id} /> : selection.kind === 'utility-junction' ? <UtilityJunctionInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
 }

@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from 'react';
-import { Armchair, BedDouble, Box, BrickWall, Cable, Cuboid, Droplets, Eye, EyeOff, Flame, ImagePlus, MousePointer2, MoveUpRight, PenTool, Square, TableProperties, Trash2, Trees, Triangle, Upload } from 'lucide-react';
+import { Armchair, BedDouble, Box, BrickWall, Cable, Cuboid, Droplets, Eye, EyeOff, Flame, GitFork, ImagePlus, MousePointer2, MoveUpRight, PenTool, Square, TableProperties, Trash2, Trees, Triangle, Upload } from 'lucide-react';
 
 import { deletePersistedAsset, persistAsset } from '../lib/assetStorage';
 import { createModelAsset, createTextureAsset } from '../lib/files';
@@ -50,6 +50,7 @@ export function ToolPanel() {
   const utilities = useEditorStore((state) => state.utilities);
   const utilityDevices = useEditorStore((state) => state.utilityDevices);
   const utilityRisers = useEditorStore((state) => state.utilityRisers);
+  const utilityJunctions = useEditorStore((state) => state.utilityJunctions);
   const utilityDeviceKind = useEditorStore((state) => state.utilityDeviceKind);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const floorCount = useEditorStore((state) => state.floors.length);
@@ -68,9 +69,11 @@ export function ToolPanel() {
   const notify = useEditorStore((state) => state.notify);
   const activeUtilityDevices = utilityDevices.filter((device) => device.floorId === activeFloorId);
   const activeUtilityRisers = utilityRisers.filter((riser) => riser.fromFloorId === activeFloorId || riser.toFloorId === activeFloorId);
+  const activeUtilityJunctions = utilityJunctions.filter((junction) => junction.floorId === activeFloorId);
   const unconnectedDeviceCount = activeUtilityDevices.filter((device) => !device.routeId).length;
   const unconnectedRiserEndpointCount = activeUtilityRisers.reduce((count, riser) => count
     + Number(riser.fromFloorId === activeFloorId && !riser.fromRouteId) + Number(riser.toFloorId === activeFloorId && !riser.toRouteId), 0);
+  const incompleteJunctionCount = activeUtilityJunctions.filter((junction) => junction.routeIds.length < 2).length;
 
   const uploadTexture = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = '';
@@ -122,10 +125,13 @@ export function ToolPanel() {
         <div className="utility-device-heading"><b>Стояки между этажами</b><span>{activeUtilityRisers.length}</span></div>
         <div className="utility-riser-grid">{utilityKinds.map((item) => { const count = activeUtilityRisers.filter((riser) => riser.kind === item.id).length; return <button aria-pressed={tool === 'utility-riser' && utilityKind === item.id} className={tool === 'utility-riser' && utilityKind === item.id ? 'active' : ''} disabled={floorCount < 2} key={item.id} onClick={() => { setUtilityKind(item.id); setTool('utility-riser'); }} type="button"><MoveUpRight size={14} style={{ color: item.color }} /><b>{item.id === 'electric' ? 'Эл. стояк' : item.id === 'water' ? 'Вода' : 'Тепло'}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
         {unconnectedRiserEndpointCount ? <div className="connection-audit"><span>{unconnectedRiserEndpointCount}</span><div><b>Концы стояков без связи</b><small>Подключите трассы текущего этажа</small></div></div> : activeUtilityRisers.length ? <div className="connection-audit ready"><span>✓</span><div><b>Стояки подключены</b><small>Текущий этаж связан с трассами</small></div></div> : null}
+        <div className="utility-device-heading"><b>Узлы ветвления</b><span>{activeUtilityJunctions.length}</span></div>
+        <div className="utility-riser-grid">{utilityKinds.map((item) => { const count = activeUtilityJunctions.filter((junction) => junction.kind === item.id).length; return <button aria-pressed={tool === 'utility-junction' && utilityKind === item.id} className={tool === 'utility-junction' && utilityKind === item.id ? 'active' : ''} key={item.id} onClick={() => { setUtilityKind(item.id); setTool('utility-junction'); }} type="button"><GitFork size={14} style={{ color: item.color }} /><b>{item.id === 'electric' ? 'Эл. узел' : item.id === 'water' ? 'Вода' : 'Тепло'}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
+        {incompleteJunctionCount ? <div className="connection-audit"><span>{incompleteJunctionCount}</span><div><b>Узлы без ветвления</b><small>Нужно минимум две трассы</small></div></div> : activeUtilityJunctions.length ? <div className="connection-audit ready"><span>✓</span><div><b>Узлы сформированы</b><small>Все объединяют несколько трасс</small></div></div> : null}
         <div className="utility-device-heading"><b>Точки подключения</b><span>{activeUtilityDevices.length}</span></div>
         <div className="utility-device-grid">{utilityDeviceKinds.map((item) => { const Icon = item.icon; const style = UTILITY_DEVICE_KINDS[item.id]; const count = utilityDevices.filter((device) => device.floorId === activeFloorId && device.kind === item.id).length; return <button aria-pressed={tool === 'utility-device' && utilityDeviceKind === item.id} className={tool === 'utility-device' && utilityDeviceKind === item.id ? 'active' : ''} key={item.id} onClick={() => { setUtilityDeviceKind(item.id); setTool('utility-device'); }} type="button"><span style={{ color: style.color }}><Icon size={15} /></span><b>{style.shortLabel}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
         {unconnectedDeviceCount ? <div className="connection-audit"><span>{unconnectedDeviceCount}</span><div><b>Без подключения</b><small>Отмечены красным в сцене</small></div></div> : activeUtilityDevices.length ? <div className="connection-audit ready"><span>✓</span><div><b>Все точки подключены</b><small>Связи с трассами корректны</small></div></div> : null}
-        <p className="panel-note">{tool === 'utility' ? `${utilitySegmentCount ? `Продолжайте трассу · сегментов ${utilitySegmentCount}` : 'Укажите начальную точку'}. ЛКМ — следующая точка, Enter или Escape — завершить.` : tool === 'utility-device' ? `Размещайте «${UTILITY_DEVICE_KINDS[utilityDeviceKind].label}» по сетке. После установки параметры доступны справа.` : tool === 'utility-riser' ? `Размещайте стояк «${UTILITY_KINDS[utilityKind].label}» между активным и соседним этажом.` : 'Выберите трассу, стояк или точку подключения и разместите их на активном этаже.'}</p>
+        <p className="panel-note">{tool === 'utility' ? `${utilitySegmentCount ? `Продолжайте трассу · сегментов ${utilitySegmentCount}` : 'Укажите начальную точку'}. ЛКМ — следующая точка, Enter или Escape — завершить.` : tool === 'utility-device' ? `Размещайте «${UTILITY_DEVICE_KINDS[utilityDeviceKind].label}» по сетке. После установки параметры доступны справа.` : tool === 'utility-riser' ? `Размещайте стояк «${UTILITY_KINDS[utilityKind].label}» между активным и соседним этажом.` : tool === 'utility-junction' ? `Размещайте узел «${UTILITY_KINDS[utilityKind].label}» рядом с двумя или более трассами.` : 'Выберите трассу, стояк, узел или точку подключения и разместите их на активном этаже.'}</p>
       </section>
 
       <section>

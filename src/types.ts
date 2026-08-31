@@ -1,5 +1,5 @@
 export type ProjectType = 'apartment' | 'plot';
-export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon' | 'wall' | 'utility' | 'utility-device' | 'utility-riser';
+export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon' | 'wall' | 'utility' | 'utility-device' | 'utility-riser' | 'utility-junction';
 export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
@@ -176,6 +176,18 @@ export interface PlanUtilityRiser {
   toRouteId?: string | undefined;
 }
 
+export interface PlanUtilityJunction {
+  id: string;
+  floorId: string;
+  name: string;
+  kind: UtilityKind;
+  x: number;
+  z: number;
+  elevation: number;
+  diameter: number;
+  routeIds: string[];
+}
+
 export type ObjectSelection =
   | { kind: 'room'; id: string }
   | { kind: 'model'; id: string };
@@ -188,7 +200,8 @@ export type Selection =
   | { kind: 'partition'; id: string }
   | { kind: 'utility'; id: string }
   | { kind: 'utility-device'; id: string }
-  | { kind: 'utility-riser'; id: string };
+  | { kind: 'utility-riser'; id: string }
+  | { kind: 'utility-junction'; id: string };
 
 export interface ProjectDocument {
   version: 1;
@@ -205,4 +218,5 @@ export interface ProjectDocument {
   utilities: PlanUtilityRoute[];
   utilityDevices: PlanUtilityDevice[];
   utilityRisers: PlanUtilityRiser[];
+  utilityJunctions: PlanUtilityJunction[];
 }

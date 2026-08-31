@@ -40,3 +40,11 @@ export function nearestUtilityRouteOfKind(routes: PlanUtilityRoute[], utilityKin
   }
   return nearest;
 }
+
+export function nearbyUtilityRoutesOfKind(routes: PlanUtilityRoute[], utilityKind: UtilityKind, floorId: string, x: number, z: number, maximumDistance = 1.5, limit = 16) {
+  return routes.flatMap((route) => {
+    if (route.floorId !== floorId || route.kind !== utilityKind) return [];
+    const projection = utilityRouteProjection(route, x, z);
+    return projection.distance <= maximumDistance ? [{ route, distance: projection.distance }] : [];
+  }).sort((left, right) => left.distance - right.distance).slice(0, limit);
+}

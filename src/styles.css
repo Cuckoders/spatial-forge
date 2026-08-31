@@ -292,6 +292,12 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .connection-auto:disabled { border-color: var(--line); background: #e7e8e2; color: #9da19b; cursor: default; }
 .riser-connection-card { display: grid; gap: 5px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: #f7f7f2; }
 .riser-connection-card > b { font-size: 8px; }
+.junction-route-list { max-height: 168px; display: grid; gap: 4px; overflow: auto; }
+.junction-route-list label { min-height: 32px; display: grid; grid-template-columns: auto 7px minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; background: #f7f7f2; cursor: pointer; }
+.junction-route-list input { accent-color: var(--ink); }
+.junction-route-list label > span { width: 7px; height: 7px; border-radius: 50%; }
+.junction-route-list b { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.junction-route-list small { color: var(--muted); font: 700 7px "DM Mono", monospace; }
 .wall-mount-status { min-height: 40px; display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: #f1f2ed; color: var(--muted); }
 .wall-mount-status > div { display: grid; gap: 2px; }
 .wall-mount-status b { color: var(--ink); font-size: 8px; }

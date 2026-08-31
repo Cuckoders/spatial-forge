@@ -51,6 +51,7 @@ function SceneStats() {
   const utilities = useEditorStore((state) => state.utilities);
   const utilityDevices = useEditorStore((state) => state.utilityDevices);
   const utilityRisers = useEditorStore((state) => state.utilityRisers);
+  const utilityJunctions = useEditorStore((state) => state.utilityJunctions);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const floorRooms = rooms.filter((room) => room.floorId === activeFloorId);
   const area = floorRooms.reduce((total, room) => total + roomArea(room), 0);
@@ -58,7 +59,8 @@ function SceneStats() {
   const utilityCount = utilities.filter((route) => route.floorId === activeFloorId).length;
   const utilityDeviceCount = utilityDevices.filter((device) => device.floorId === activeFloorId).length;
   const utilityRiserCount = utilityRisers.filter((riser) => riser.fromFloorId === activeFloorId || riser.toFloorId === activeFloorId).length;
-  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> {pluralizeStat(floorRooms.length, 'блок', 'блока', 'блоков')}</span><span><b>{wallCount}</b> {pluralizeStat(wallCount, 'стена', 'стены', 'стен')}</span><span><b>{utilityCount}</b> {pluralizeStat(utilityCount, 'трасса', 'трассы', 'трасс')} · <b>{utilityDeviceCount}</b> {pluralizeStat(utilityDeviceCount, 'точка', 'точки', 'точек')} · <b>{utilityRiserCount}</b> {pluralizeStat(utilityRiserCount, 'стояк', 'стояка', 'стояков')}</span><span><b>{modelCount}</b> {pluralizeStat(modelCount, 'объект', 'объекта', 'объектов')}</span></div>;
+  const utilityJunctionCount = utilityJunctions.filter((junction) => junction.floorId === activeFloorId).length;
+  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> {pluralizeStat(floorRooms.length, 'блок', 'блока', 'блоков')}</span><span><b>{wallCount}</b> {pluralizeStat(wallCount, 'стена', 'стены', 'стен')}</span><span><b>{utilityCount}</b> {pluralizeStat(utilityCount, 'трасса', 'трассы', 'трасс')} · <b>{utilityDeviceCount}</b> {pluralizeStat(utilityDeviceCount, 'точка', 'точки', 'точек')} · <b>{utilityRiserCount}</b> {pluralizeStat(utilityRiserCount, 'стояк', 'стояка', 'стояков')} · <b>{utilityJunctionCount}</b> {pluralizeStat(utilityJunctionCount, 'узел', 'узла', 'узлов')}</span><span><b>{modelCount}</b> {pluralizeStat(modelCount, 'объект', 'объекта', 'объектов')}</span></div>;
 }
 
 function WelcomeBadge() {
