@@ -10,6 +10,7 @@ import type { ObjectSelection } from '../../types';
 import { ModelMesh } from './ModelMesh';
 import { RoomMesh } from './RoomMesh';
 import { SelectionTransform } from './SelectionTransform';
+import { StandaloneWallMesh } from './StandaloneWallMesh';
 
 function CameraController() {
   const camera = useThree((state) => state.camera);
@@ -71,6 +72,29 @@ function DraftPolygon() {
   </group>;
 }
 
+function DraftWall() {
+  const start = useEditorStore((state) => state.draftWallStart);
+  const end = useEditorStore((state) => state.draftWallEnd);
+  const elevation = useEditorStore((state) => state.floors.find((floor) => floor.id === state.activeFloorId)?.elevation ?? 0);
+  if (!start || !end) return null;
+  const dx = end[0] - start[0]; const dz = end[1] - start[1];
+  const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
+  const midpoint = [(start[0] + end[0]) / 2, elevation + 0.22, (start[1] + end[1]) / 2] as const;
+  return <group>
+    <Line color="#D7EF35" lineWidth={4} points={[[start[0], elevation + 0.22, start[1]], [end[0], elevation + 0.22, end[1]]]} raycast={() => undefined} />
+    <group position={midpoint} rotation={[0, -angle, 0]}>
+      {length > 0 ? <mesh position={[0, 1.4, 0]} raycast={() => undefined}>
+        <boxGeometry args={[length, 2.8, 0.16]} />
+        <meshBasicMaterial color="#D7EF35" opacity={0.28} transparent />
+      </mesh> : null}
+      <Html center position={[0, 3.05, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[35, 0]}><div className="wall-measure-label">{length.toFixed(2)} м</div></Html>
+    </group>
+    {[start, end].map((point, index) => <mesh key={index} position={[point[0], elevation + 0.24, point[1]]} raycast={() => undefined}>
+      <sphereGeometry args={[0.12, 14, 10]} /><meshBasicMaterial color={index === 0 ? '#202522' : '#D7EF35'} depthTest={false} />
+    </mesh>)}
+  </group>;
+}
+
 function SnapGuides() {
   const guides = useEditorStore((state) => state.snapGuides);
   const site = useEditorStore((state) => state.site);
@@ -116,6 +140,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const site = useEditorStore((state) => state.site);
   const floors = useEditorStore((state) => state.floors);
   const rooms = useEditorStore((state) => state.rooms);
+  const walls = useEditorStore((state) => state.walls);
   const models = useEditorStore((state) => state.modelInstances);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const showAllFloors = useEditorStore((state) => state.showAllFloors);
@@ -125,6 +150,8 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const select = useEditorStore((state) => state.select);
   const selectObjects = useEditorStore((state) => state.selectObjects);
   const addPolygonPoint = useEditorStore((state) => state.addPolygonPoint);
+  const addWallPoint = useEditorStore((state) => state.addWallPoint);
+  const previewWall = useEditorStore((state) => state.previewWall);
   const completePolygon = useEditorStore((state) => state.completePolygon);
   const activeFloorElevation = floors.find((floor) => floor.id === activeFloorId)?.elevation ?? 0;
 
@@ -188,7 +215,11 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
     if (event.delta > 4) return;
     if (tool === 'rectangle' || tool === 'triangle') { event.stopPropagation(); addRoomAt(tool, event.point.x, event.point.z); }
     else if (tool === 'polygon') { event.stopPropagation(); addPolygonPoint(event.point.x, event.point.z); }
+    else if (tool === 'wall') { event.stopPropagation(); addWallPoint(event.point.x, event.point.z); }
     else if (!event.shiftKey) select(null);
+  };
+  const onGroundPointerMove = (event: ThreeEvent<PointerEvent>) => {
+    if (tool === 'wall') previewWall(event.point.x, event.point.z);
   };
   const onGroundDoubleClick = (event: ThreeEvent<MouseEvent>) => {
     if (tool !== 'polygon') return;
@@ -200,7 +231,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
     <ambientLight intensity={1.15} />
     <directionalLight castShadow intensity={2.2} position={[14, 22, 12]} shadow-mapSize-height={2048} shadow-mapSize-width={2048} />
     <hemisphereLight groundColor={projectType === 'plot' ? '#738267' : '#8B8B82'} intensity={0.45} />
-    <mesh onClick={onGroundClick} onDoubleClick={onGroundDoubleClick} onPointerDown={onGroundPointerDown} position={[0, -0.08, 0]} receiveShadow>
+    <mesh onClick={onGroundClick} onDoubleClick={onGroundDoubleClick} onPointerDown={onGroundPointerDown} onPointerMove={onGroundPointerMove} position={[0, -0.08, 0]} receiveShadow>
       <boxGeometry args={[site.width, 0.15, site.depth]} />
       <meshStandardMaterial color={projectType === 'plot' ? '#899E77' : '#C6C7C0'} roughness={1} />
     </mesh>
@@ -216,10 +247,12 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
       if (!active && !showAllFloors) return null;
       return <group key={floor.id}>
         {rooms.filter((room) => room.floorId === floor.id).map((room) => <RoomMesh key={room.id} active={active} elevation={floor.elevation} room={room} />)}
+        {walls.filter((wall) => wall.floorId === floor.id).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
       </group>;
     })}
     <DraftPolygon />
+    <DraftWall />
     <SnapGuides />
     <SelectionTransform />
     <CameraController />
@@ -237,6 +270,8 @@ export function PlannerCanvas() {
       <SceneContents selectionBoxRef={selectionBoxRef} />
     </Canvas>
     <div aria-hidden="true" className="selection-box" hidden ref={selectionBoxRef} />
-    <div className="canvas-hint">{cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</> : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
+    <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> начало / конец стены · <kbd>Esc</kbd> отмена</>
+      : cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</>
+        : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
   </div>;
 }

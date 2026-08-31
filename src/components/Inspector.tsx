@@ -1,4 +1,4 @@
-import { Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
+import { BrickWall, Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
@@ -46,6 +46,34 @@ function RoomInspector({ id, selectedVertexIndex }: { id: string; selectedVertex
     <section className="inspector-section"><div className="inspector-title"><span>Пол</span><Droplets size={16} /></div><label className="color-field"><input onChange={(event) => updateRoom(room.id, { floorColor: event.target.value })} type="color" value={room.floorColor} /><span>{room.floorColor.toUpperCase()}</span><b>{roomArea(room).toFixed(1)} м²</b></label></section>
     {room.shape === 'polygon' && room.vertices ? <section className="inspector-section"><div className="inspector-title"><span>Вершины контура</span><Move3D size={16} /></div><p className="vertex-note">Координаты указаны относительно центра объекта. Выберите маркер и двигайте его по осям X/Z с шагом 0,5 м.</p><div className="vertex-list">{room.vertices.map((point, index) => <div className={`vertex-row${selectedVertexIndex === index ? ' active' : ''}`} key={index}><b>{index + 1}</b><div className="vertex-controls"><div className="field-row"><NumericField label="X" max={50} min={-50} onChange={(x) => updatePolygonVertex(room.id, index, { x })} unit="м" value={point[0]} /><NumericField label="Z" max={50} min={-50} onChange={(z) => updatePolygonVertex(room.id, index, { z })} unit="м" value={point[1]} /></div><div className="vertex-actions"><button onClick={() => insertPolygonVertex(room.id, index)} title={`Добавить вершину после ${index + 1}`} type="button"><Plus size={13} /> После этой стены</button><button className="danger" disabled={room.vertices!.length <= 3} onClick={() => removePolygonVertex(room.id, index)} title={`Удалить вершину ${index + 1}`} type="button"><Trash2 size={12} /></button></div></div></div>)}</div></section> : null}
     <div className="inspector-actions"><button onClick={() => duplicateRoom(room.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeRoom(room.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
+  </>;
+}
+
+function PartitionInspector({ id }: { id: string }) {
+  const wall = useEditorStore((state) => state.walls.find((item) => item.id === id));
+  const updateWall = useEditorStore((state) => state.updateWall);
+  const duplicateWall = useEditorStore((state) => state.duplicateWall);
+  const removeWall = useEditorStore((state) => state.removeWall);
+  if (!wall) return <EmptyInspector />;
+  const dx = wall.endX - wall.startX; const dz = wall.endZ - wall.startZ;
+  const length = Math.hypot(dx, dz); const angle = Math.atan2(dz, dx);
+  const setLength = (nextLength: number) => updateWall(wall.id, {
+    endX: wall.startX + Math.cos(angle) * nextLength,
+    endZ: wall.startZ + Math.sin(angle) * nextLength,
+  });
+  return <>
+    <div className="inspector-head"><span className="selection-tag">Самостоятельная стена</span><input aria-label="Название стены" maxLength={80} onChange={(event) => updateWall(wall.id, { name: event.target.value })} value={wall.name} /></div>
+    <section className="inspector-section"><div className="inspector-title"><span>Опорные точки</span><Move3D size={16} /></div>
+      <p className="vertex-note">Координаты начала и конца задаются в метрах относительно центра проекта.</p>
+      <div className="endpoint-label">Начало</div><div className="field-row"><NumericField label="X₁" max={200} min={-200} onChange={(startX) => updateWall(wall.id, { startX })} unit="м" value={wall.startX} /><NumericField label="Z₁" max={200} min={-200} onChange={(startZ) => updateWall(wall.id, { startZ })} unit="м" value={wall.startZ} /></div>
+      <div className="endpoint-label">Конец</div><div className="field-row"><NumericField label="X₂" max={200} min={-200} onChange={(endX) => updateWall(wall.id, { endX })} unit="м" value={wall.endX} /><NumericField label="Z₂" max={200} min={-200} onChange={(endZ) => updateWall(wall.id, { endZ })} unit="м" value={wall.endZ} /></div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Размеры стены</span><BrickWall size={16} /></div>
+      <NumericField label="Точная длина" max={100} min={0.25} onChange={setLength} step={0.05} unit="м" value={length} />
+      <div className="field-row"><NumericField label="Высота" max={12} min={0.2} onChange={(height) => updateWall(wall.id, { height })} unit="м" value={wall.height} /><NumericField label="Толщина" max={1} min={0.05} onChange={(thickness) => updateWall(wall.id, { thickness })} step={0.01} unit="м" value={wall.thickness} /></div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Цвет стены</span><Droplets size={16} /></div><label className="color-field"><input onChange={(event) => updateWall(wall.id, { color: event.target.value })} type="color" value={wall.color} /><span>{wall.color.toUpperCase()}</span><b>{(angle * 180 / Math.PI).toFixed(1)}°</b></label></section>
+    <div className="inspector-actions"><button onClick={() => duplicateWall(wall.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeWall(wall.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
   </>;
 }
 
@@ -113,5 +141,5 @@ function GroupInspector({ items }: { items: ObjectSelection[] }) {
 
 export function Inspector() {
   const selection = useEditorStore((state) => state.selection);
-  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}</aside>;
+  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}</aside>;
 }

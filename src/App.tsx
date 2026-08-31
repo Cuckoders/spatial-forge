@@ -36,13 +36,20 @@ function TransformModeControls() {
   </div>;
 }
 
+function pluralizeStat(count: number, one: string, few: string, many: string) {
+  const lastTwo = count % 100; const last = count % 10;
+  return lastTwo >= 11 && lastTwo <= 14 ? many : last === 1 ? one : last >= 2 && last <= 4 ? few : many;
+}
+
 function SceneStats() {
   const rooms = useEditorStore((state) => state.rooms);
+  const walls = useEditorStore((state) => state.walls);
   const modelCount = useEditorStore((state) => state.modelInstances.length);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const floorRooms = rooms.filter((room) => room.floorId === activeFloorId);
   const area = floorRooms.reduce((total, room) => total + roomArea(room), 0);
-  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> блоков</span><span><b>{modelCount}</b> объектов</span></div>;
+  const wallCount = walls.filter((wall) => wall.floorId === activeFloorId).length;
+  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> {pluralizeStat(floorRooms.length, 'блок', 'блока', 'блоков')}</span><span><b>{wallCount}</b> {pluralizeStat(wallCount, 'стена', 'стены', 'стен')}</span><span><b>{modelCount}</b> {pluralizeStat(modelCount, 'объект', 'объекта', 'объектов')}</span></div>;
 }
 
 function WelcomeBadge() {
@@ -89,6 +96,7 @@ export default function App() {
       else if (event.key.toLowerCase() === 'r') setTool('rectangle');
       else if (event.key.toLowerCase() === 't') setTool('triangle');
       else if (event.key.toLowerCase() === 'p') setTool('polygon');
+      else if (event.key.toLowerCase() === 'l') setTool('wall');
       else if (event.key.toLowerCase() === 'd') toggleDimensions();
       else if (event.key === ']') rotateSelection(15);
       else if (event.key === '1') setCameraPreset('perspective');

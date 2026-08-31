@@ -1,5 +1,5 @@
 export type ProjectType = 'apartment' | 'plot';
-export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon';
+export type EditorTool = 'select' | 'rectangle' | 'triangle' | 'polygon' | 'wall';
 export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
@@ -36,6 +36,19 @@ export interface PlanRoom {
   wallThickness: number;
   floorColor: string;
   vertices?: Array<[number, number]>;
+}
+
+export interface PlanWall {
+  id: string;
+  floorId: string;
+  name: string;
+  startX: number;
+  startZ: number;
+  endX: number;
+  endZ: number;
+  height: number;
+  thickness: number;
+  color: string;
 }
 
 export interface WallFinish {
@@ -90,7 +103,8 @@ export type Selection =
   | ObjectSelection
   | { kind: 'group'; items: ObjectSelection[] }
   | { kind: 'vertex'; roomId: string; vertexIndex: number }
-  | { kind: 'wall'; id: string; roomId: string; wallIndex: number };
+  | { kind: 'wall'; id: string; roomId: string; wallIndex: number }
+  | { kind: 'partition'; id: string };
 
 export interface ProjectDocument {
   version: 1;
@@ -99,6 +113,7 @@ export interface ProjectDocument {
   site: SiteSettings;
   floors: PlanFloor[];
   rooms: PlanRoom[];
+  walls: PlanWall[];
   wallFinishes: Record<string, WallFinish>;
   openings: WallOpening[];
   modelInstances: ModelInstance[];

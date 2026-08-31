@@ -15,6 +15,7 @@ export function TopBar() {
       site: store.site,
       floors: store.floors,
       rooms: store.rooms,
+      walls: store.walls,
       wallFinishes: store.wallFinishes,
       openings: store.openings,
       modelInstances: store.modelInstances,

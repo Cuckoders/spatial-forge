@@ -4,7 +4,7 @@ import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, TextureAsset, TransformMode, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, TextureAsset, TransformMode, WallFinish, WallOpening } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -12,6 +12,7 @@ interface EditorState {
   site: SiteSettings;
   floors: PlanFloor[];
   rooms: PlanRoom[];
+  walls: PlanWall[];
   wallFinishes: Record<string, WallFinish>;
   openings: WallOpening[];
   textures: TextureAsset[];
@@ -22,6 +23,8 @@ interface EditorState {
   showDimensions: boolean;
   tool: EditorTool;
   draftPolygon: Point2[];
+  draftWallStart: Point2 | null;
+  draftWallEnd: Point2 | null;
   selection: Selection | null;
   snapGuides: SnapGuide[];
   transformMode: TransformMode;
@@ -41,6 +44,8 @@ interface EditorState {
   setTransformMode: (mode: TransformMode) => void;
   addRoomAt: (shape: PlanRoom['shape'], x: number, z: number) => void;
   addPolygonPoint: (x: number, z: number) => void;
+  previewWall: (x: number, z: number) => void;
+  addWallPoint: (x: number, z: number) => void;
   completePolygon: () => void;
   cancelPolygon: () => void;
   updatePolygonVertex: (id: string, index: number, patch: { x?: number; z?: number }) => void;
@@ -49,6 +54,9 @@ interface EditorState {
   updateRoom: (id: string, patch: Partial<PlanRoom>) => void;
   duplicateRoom: (id: string) => void;
   removeRoom: (id: string) => void;
+  updateWall: (id: string, patch: Partial<PlanWall>) => void;
+  duplicateWall: (id: string) => void;
+  removeWall: (id: string) => void;
   setWallFinish: (roomId: string, wallIndex: number, finish: WallFinish) => void;
   clearWallFinish: (roomId: string, wallIndex: number) => void;
   addWallOpening: (roomId: string, wallIndex: number, kind: WallOpening['kind']) => void;
@@ -88,7 +96,7 @@ interface EditorState {
   endHistoryBatch: () => void;
 }
 
-type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'activeFloorId' | 'showAllFloors'>;
+type HistorySnapshot = Pick<EditorState, 'projectName' | 'projectType' | 'site' | 'floors' | 'rooms' | 'walls' | 'wallFinishes' | 'openings' | 'textures' | 'modelAssets' | 'modelInstances' | 'activeFloorId' | 'showAllFloors'>;
 
 const historyPast: HistorySnapshot[] = [];
 const historyFuture: HistorySnapshot[] = [];
@@ -122,7 +130,7 @@ function demoProject(): ProjectDocument {
     { id: 'studio', floorId: 'floor-2', name: 'Студия', shape: 'rectangle', x: 0, z: 0, width: 7, depth: 5, rotation: 0, wallHeight: 2.7, wallThickness: 0.16, floorColor: '#D8CFBB' },
   ];
   return {
-    version: 1, name: 'Дом у сада', projectType: 'apartment', site: { width: 20, depth: 16 }, floors, rooms,
+    version: 1, name: 'Дом у сада', projectType: 'apartment', site: { width: 20, depth: 16 }, floors, rooms, walls: [],
     wallFinishes: {
       [wallId('living', 0)]: { color: '#EEE8DC' }, [wallId('living', 1)]: { color: '#D7E2DA' },
       [wallId('kitchen', 2)]: { color: '#C9D8CE' }, [wallId('bedroom', 0)]: { color: '#DAD4E4' },
@@ -145,6 +153,12 @@ function normalizedRoom(room: PlanRoom): PlanRoom {
     width: clamp(room.width, 0.5, 50), depth: clamp(room.depth, 0.5, 50), rotation: radians(normalizeDegrees(room.rotation * 180 / Math.PI)),
     wallHeight: clamp(room.wallHeight, 0.2, 12), wallThickness: clamp(room.wallThickness, 0.05, 1),
     floorColor: /^#[0-9a-f]{6}$/i.test(room.floorColor) ? room.floorColor : '#D8CFBB' };
+}
+
+function normalizedWall(wall: PlanWall): PlanWall {
+  return { ...wall, name: cleanText(wall.name, 80) || 'Стена', startX: clamp(wall.startX, -200, 200), startZ: clamp(wall.startZ, -200, 200),
+    endX: clamp(wall.endX, -200, 200), endZ: clamp(wall.endZ, -200, 200), height: clamp(wall.height, 0.2, 12),
+    thickness: clamp(wall.thickness, 0.05, 1), color: /^#[0-9a-f]{6}$/i.test(wall.color) ? wall.color : '#E9E4DA' };
 }
 
 function normalizedModel(model: ModelInstance): ModelInstance {
@@ -179,6 +193,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   site: initialProject.site,
   floors: initialProject.floors,
   rooms: initialProject.rooms,
+  walls: initialProject.walls,
   wallFinishes: initialProject.wallFinishes,
   openings: initialProject.openings,
   textures: [],
@@ -189,6 +204,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   showDimensions: false,
   tool: 'select',
   draftPolygon: [],
+  draftWallStart: null,
+  draftWallEnd: null,
   selection: null,
   snapGuides: [],
   transformMode: 'translate',
@@ -201,15 +218,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setProjectName: (name) => set({ projectName: cleanText(name, 80) || 'Новый проект' }),
   setProjectType: (projectType) => set({ projectType, selection: null, snapGuides: [] }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
-  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], snapGuides: [] }),
+  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [] }),
   select: (selection, additive = false) => set((state) => {
-    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], snapGuides: [] };
+    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [] };
     const currentItems = state.selection?.kind === 'group' ? state.selection.items
       : state.selection && isObjectSelection(state.selection) ? [state.selection] : [];
     const key = objectSelectionKey(selection);
     const exists = currentItems.some((item) => objectSelectionKey(item) === key);
     const items = exists ? currentItems.filter((item) => objectSelectionKey(item) !== key) : [...currentItems, selection];
-    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], snapGuides: [] };
+    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [] };
   }),
   selectObjects: (selections, additive = false) => set((state) => {
     const currentItems = additive
@@ -217,10 +234,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       : [];
     const items = new Map(currentItems.map((item) => [objectSelectionKey(item), item]));
     for (const selection of selections) items.set(objectSelectionKey(selection), selection);
-    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], snapGuides: [] };
+    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [] };
   }),
   setSnapGuides: (snapGuides) => set({ snapGuides }),
-  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], snapGuides: [] }),
+  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [] }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
@@ -238,6 +255,22 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     if (points.length >= 24) { set({ message: 'В одном контуре можно поставить до 24 точек' }); return; }
     set({ draftPolygon: [...points, point], message: points.length === 0 ? 'Поставьте ещё минимум две точки' : null });
   },
+  previewWall: (x, z) => set((state) => state.tool === 'wall' && state.draftWallStart
+    ? { draftWallEnd: [snapToGrid(x), snapToGrid(z)] } : state),
+  addWallPoint: (x, z) => set((state) => {
+    if (state.tool !== 'wall') return state;
+    const point = [snapToGrid(x), snapToGrid(z)] as Point2;
+    if (!state.draftWallStart) return { draftWallStart: point, draftWallEnd: point, message: 'Укажите конечную точку стены' };
+    const length = Math.hypot(point[0] - state.draftWallStart[0], point[1] - state.draftWallStart[1]);
+    if (length < 0.25) return { draftWallEnd: point, message: 'Длина стены должна быть не меньше 0,25 м' };
+    const id = newId('wall');
+    const count = state.walls.filter((wall) => wall.floorId === state.activeFloorId).length + 1;
+    const wall = normalizedWall({ id, floorId: state.activeFloorId, name: `Стена ${count}`,
+      startX: state.draftWallStart[0], startZ: state.draftWallStart[1], endX: point[0], endZ: point[1],
+      height: state.projectType === 'plot' ? 1.8 : 2.8, thickness: 0.16, color: '#E9E4DA' });
+    return { walls: [...state.walls, wall], selection: { kind: 'partition', id }, tool: 'select',
+      draftWallStart: null, draftWallEnd: null, message: `Стена создана · ${length.toFixed(2)} м` };
+  }),
   completePolygon: () => set((state) => {
     if (state.tool !== 'polygon') return state;
     const points = state.draftPolygon;
@@ -254,7 +287,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       wallThickness: 0.16, floorColor: colors[state.rooms.length % colors.length] ?? '#D8CFBB' };
     return { rooms: [...state.rooms, room], selection: { kind: 'room', id }, tool: 'select', draftPolygon: [], message: 'Произвольный контур создан' };
   }),
-  cancelPolygon: () => set((state) => ({ draftPolygon: [], tool: 'select', ...(state.draftPolygon.length ? { message: 'Построение контура отменено' } : {}) })),
+  cancelPolygon: () => set((state) => ({ draftPolygon: [], draftWallStart: null, draftWallEnd: null, tool: 'select',
+    ...(state.draftPolygon.length || state.draftWallStart ? { message: 'Построение отменено' } : {}) })),
   updatePolygonVertex: (id, index, patch) => set((state) => {
     const room = state.rooms.find((item) => item.id === id);
     if (!room || room.shape !== 'polygon' || !room.vertices?.[index]
@@ -351,6 +385,20 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     openings: state.openings.filter((opening) => opening.roomId !== id),
     selection: state.selection?.kind === 'room' && state.selection.id === id || state.selection?.kind === 'vertex' && state.selection.roomId === id
       || state.selection?.kind === 'wall' && state.selection.roomId === id ? null : state.selection })),
+  updateWall: (id, patch) => set((state) => {
+    const source = state.walls.find((wall) => wall.id === id); if (!source) return state;
+    const wall = normalizedWall({ ...source, ...patch, id: source.id, floorId: source.floorId });
+    if (Math.hypot(wall.endX - wall.startX, wall.endZ - wall.startZ) < 0.25) return { message: 'Длина стены должна быть не меньше 0,25 м' };
+    return { walls: state.walls.map((item) => item.id === id ? wall : item) };
+  }),
+  duplicateWall: (id) => set((state) => {
+    const source = state.walls.find((wall) => wall.id === id); if (!source) return state;
+    const copy = normalizedWall({ ...source, id: newId('wall'), name: `${source.name} — копия`.slice(0, 80),
+      startX: source.startX + 0.5, startZ: source.startZ + 0.5, endX: source.endX + 0.5, endZ: source.endZ + 0.5 });
+    return { walls: [...state.walls, copy], selection: { kind: 'partition', id: copy.id }, message: 'Стена скопирована' };
+  }),
+  removeWall: (id) => set((state) => ({ walls: state.walls.filter((wall) => wall.id !== id),
+    selection: state.selection?.kind === 'partition' && state.selection.id === id ? null : state.selection, message: 'Стена удалена' })),
   setWallFinish: (roomId, wallIndex, finish) => set((state) => {
     const color = /^#[0-9a-f]{6}$/i.test(finish.color) ? finish.color : '#E7E1D7';
     const textureId = finish.textureId && state.textures.some((texture) => texture.id === finish.textureId) ? finish.textureId : undefined;
@@ -409,16 +457,19 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     }
     const models = state.modelInstances.filter((model) => model.floorId === sourceFloor.id)
       .map((model) => ({ ...model, id: newId('object'), floorId: floor.id }));
+    const walls = state.walls.filter((wall) => wall.floorId === sourceFloor.id)
+      .map((wall) => ({ ...wall, id: newId('wall'), floorId: floor.id }));
     return { floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], openings: [...state.openings, ...openings],
-      wallFinishes, modelInstances: [...state.modelInstances, ...models], activeFloorId: floor.id, selection: null,
+      walls: [...state.walls, ...walls], wallFinishes, modelInstances: [...state.modelInstances, ...models], activeFloorId: floor.id, selection: null,
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
-  setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId) ? { activeFloorId, selection: null, draftPolygon: [], snapGuides: [] } : state),
+  setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId)
+    ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [] } : state),
   removeActiveFloor: () => set((state) => {
     if (state.floors.length === 1) return { message: 'В проекте должен остаться хотя бы один этаж' };
     const remaining = state.floors.filter((floor) => floor.id !== state.activeFloorId);
     const removedRoomIds = new Set(state.rooms.filter((room) => room.floorId === state.activeFloorId).map((room) => room.id));
-    return { floors: remaining, rooms: state.rooms.filter((room) => room.floorId !== state.activeFloorId),
+    return { floors: remaining, rooms: state.rooms.filter((room) => room.floorId !== state.activeFloorId), walls: state.walls.filter((wall) => wall.floorId !== state.activeFloorId),
       wallFinishes: Object.fromEntries(Object.entries(state.wallFinishes).filter(([key]) => ![...removedRoomIds].some((id) => key.startsWith(`${id}:wall:`)))),
       openings: state.openings.filter((opening) => !removedRoomIds.has(opening.roomId)),
       modelInstances: state.modelInstances.filter((model) => model.floorId !== state.activeFloorId), activeFloorId: remaining[0]?.id ?? '', selection: null, message: 'Этаж удалён' };
@@ -548,6 +599,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     if (selection?.kind === 'room') get().removeRoom(selection.id);
     else if (selection?.kind === 'vertex') get().removePolygonVertex(selection.roomId, selection.vertexIndex);
     else if (selection?.kind === 'model') get().removeModel(selection.id);
+    else if (selection?.kind === 'partition') get().removeWall(selection.id);
     else if (selection?.kind === 'wall') get().clearWallFinish(selection.roomId, selection.wallIndex);
     else if (selection?.kind === 'group') set((state) => {
       const roomIds = new Set(selection.items.filter((item) => item.kind === 'room').map((item) => item.id));
@@ -568,13 +620,13 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setCameraPreset: (cameraPreset) => set((state) => ({ cameraPreset, cameraRevision: state.cameraRevision + 1 })),
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
-    floors: project.floors, rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Планировка загружена' }),
+    floors: project.floors, rooms: project.rooms, walls: project.walls, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
+    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
-      rooms: project.rooms, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Демо-проект восстановлен' });
+      rooms: project.rooms, walls: project.walls, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
+      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [], message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
   undo: () => undoHistory(),
@@ -586,14 +638,14 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
 function captureHistory(state: EditorState): HistorySnapshot {
   return {
     projectName: state.projectName, projectType: state.projectType, site: state.site, floors: state.floors,
-    rooms: state.rooms, wallFinishes: state.wallFinishes, openings: state.openings, textures: state.textures, modelAssets: state.modelAssets,
+    rooms: state.rooms, walls: state.walls, wallFinishes: state.wallFinishes, openings: state.openings, textures: state.textures, modelAssets: state.modelAssets,
     modelInstances: state.modelInstances, activeFloorId: state.activeFloorId, showAllFloors: state.showAllFloors,
   };
 }
 
 function sameHistory(left: HistorySnapshot, right: HistorySnapshot) {
   return left.projectName === right.projectName && left.projectType === right.projectType && left.site === right.site
-    && left.floors === right.floors && left.rooms === right.rooms && left.wallFinishes === right.wallFinishes && left.openings === right.openings
+    && left.floors === right.floors && left.rooms === right.rooms && left.walls === right.walls && left.wallFinishes === right.wallFinishes && left.openings === right.openings
     && left.textures === right.textures && left.modelAssets === right.modelAssets && left.modelInstances === right.modelInstances
     && left.activeFloorId === right.activeFloorId && left.showAllFloors === right.showAllFloors;
 }
@@ -625,7 +677,7 @@ function undoHistory() {
   if (!previous) return;
   historyFuture.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
+  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
 }
 
 function redoHistory() {
@@ -634,13 +686,13 @@ function redoHistory() {
   if (!next) return;
   historyPast.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
+  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallEnd: null, snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
 }
 
 lastHistorySnapshot = captureHistory(useEditorStore.getState());
 
 useEditorStore.subscribe(
-  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.activeFloorId, state.showAllFloors] as const,
+  (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallFinishes, state.openings, state.textures, state.modelAssets, state.modelInstances, state.activeFloorId, state.showAllFloors] as const,
   () => {
     const current = captureHistory(useEditorStore.getState());
     if (restoringHistory) { restoringHistory = false; lastHistorySnapshot = current; return; }
@@ -657,10 +709,10 @@ useEditorStore.subscribe(
 if (typeof window !== 'undefined') {
   let saveTimer: number | undefined;
   useEditorStore.subscribe(
-    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.wallFinishes, state.openings, state.modelInstances] as const,
-    ([name, projectType, site, floors, rooms, wallFinishes, openings, modelInstances]) => {
+    (state) => [state.projectName, state.projectType, state.site, state.floors, state.rooms, state.walls, state.wallFinishes, state.openings, state.modelInstances] as const,
+    ([name, projectType, site, floors, rooms, walls, wallFinishes, openings, modelInstances]) => {
       window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, wallFinishes, openings, modelInstances })), 180);
+      saveTimer = window.setTimeout(() => saveAutosave(createProjectDocument({ name, projectType, site, floors, rooms, walls, wallFinishes, openings, modelInstances })), 180);
     },
     { equalityFn: shallow },
   );

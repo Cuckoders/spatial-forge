@@ -1,5 +1,5 @@
 import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geometry';
-import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, ProjectDocument, ProjectType, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, SiteSettings, TextureAsset, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
 export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024;
@@ -51,6 +51,17 @@ function readRoom(value: unknown, floorIds: Set<string>): PlanRoom | undefined {
     wallThickness: value.wallThickness, floorColor: value.floorColor, ...(vertices ? { vertices } : {}) };
 }
 
+function readWall(value: unknown, floorIds: Set<string>): PlanWall | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)) return undefined;
+  const name = text(value.name, 80);
+  if (!name || !finite(value.startX, -200, 200) || !finite(value.startZ, -200, 200) || !finite(value.endX, -200, 200)
+    || !finite(value.endZ, -200, 200) || !finite(value.height, 0.2, 12) || !finite(value.thickness, 0.05, 1)
+    || typeof value.color !== 'string' || !colorPattern.test(value.color)
+    || Math.hypot(value.endX - value.startX, value.endZ - value.startZ) < 0.25) return undefined;
+  return { id: value.id, floorId: value.floorId, name, startX: value.startX, startZ: value.startZ,
+    endX: value.endX, endZ: value.endZ, height: value.height, thickness: value.thickness, color: value.color };
+}
+
 function readModel(value: unknown, floorIds: Set<string>): ModelInstance | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)
     || typeof value.assetId !== 'string' || (!uuidPattern.test(value.assetId)
@@ -84,6 +95,7 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (!isRecord(value) || value.version !== 1 || !['apartment', 'plot'].includes(String(value.projectType)) || !isRecord(value.site)
     || !finite(value.site.width, 4, 200) || !finite(value.site.depth, 4, 200) || !Array.isArray(value.floors)
     || value.floors.length < 1 || value.floors.length > 12 || !Array.isArray(value.rooms) || value.rooms.length > 500
+    || (value.walls !== undefined && !Array.isArray(value.walls)) || (Array.isArray(value.walls) && value.walls.length > 1_000)
     || !isRecord(value.wallFinishes) || Object.keys(value.wallFinishes).length > 2_000 || (value.openings !== undefined && !Array.isArray(value.openings))
     || (Array.isArray(value.openings) && value.openings.length > 1_000) || !Array.isArray(value.modelInstances)
     || value.modelInstances.length > 200) throw new Error('Файл планировки имеет неподдерживаемую структуру.');
@@ -98,6 +110,10 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (rooms.some((room) => !room)) throw new Error('В файле есть некорректный блок.');
   const validRooms = rooms as PlanRoom[];
   if (new Set(validRooms.map((room) => room.id)).size !== validRooms.length) throw new Error('Идентификаторы блоков повторяются.');
+  const walls = (Array.isArray(value.walls) ? value.walls : []).map((wall) => readWall(wall, floorIds));
+  if (walls.some((wall) => !wall)) throw new Error('В файле есть некорректная самостоятельная стена.');
+  const validWalls = walls as PlanWall[];
+  if (new Set(validWalls.map((wall) => wall.id)).size !== validWalls.length) throw new Error('Идентификаторы стен повторяются.');
   const roomsById = new Map(validRooms.map((room) => [room.id, room]));
   const openings = (Array.isArray(value.openings) ? value.openings : []).map((opening) => readOpening(opening, roomsById));
   if (openings.some((opening) => !opening)) throw new Error('В файле есть некорректный дверной или оконный проём.');
@@ -115,16 +131,16 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   const models = value.modelInstances.map((model) => readModel(model, floorIds));
   if (models.some((model) => !model)) throw new Error('В файле есть некорректный объект.');
   return { version: 1, name, projectType: value.projectType as ProjectType,
-    site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms,
+    site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms, walls: validWalls,
     wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[] };
 }
 
 const wallIdForOpening = (opening: Pick<WallOpening, 'roomId' | 'wallIndex'>) => `${opening.roomId}:wall:${opening.wallIndex}`;
 
-export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[] }): ProjectDocument {
+export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; walls: PlanWall[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[] }): ProjectDocument {
   const wallFinishes = Object.fromEntries(Object.entries(input.wallFinishes).map(([id, finish]) => [id, { color: finish.color, ...(finish.textureId && uuidPattern.test(finish.textureId) ? { textureId: finish.textureId } : {}) }]));
   return { version: 1, name: input.name, projectType: input.projectType, site: input.site, floors: input.floors,
-    rooms: input.rooms, wallFinishes, openings: input.openings, modelInstances: input.modelInstances };
+    rooms: input.rooms, walls: input.walls, wallFinishes, openings: input.openings, modelInstances: input.modelInstances };
 }
 
 export function saveAutosave(document: ProjectDocument) {

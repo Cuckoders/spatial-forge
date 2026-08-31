@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from 'react';
-import { Armchair, BedDouble, Box, Cuboid, ImagePlus, MousePointer2, MoveUpRight, PenTool, Square, TableProperties, Trash2, Trees, Triangle, Upload } from 'lucide-react';
+import { Armchair, BedDouble, Box, BrickWall, Cuboid, ImagePlus, MousePointer2, MoveUpRight, PenTool, Square, TableProperties, Trash2, Trees, Triangle, Upload } from 'lucide-react';
 
 import { deletePersistedAsset, persistAsset } from '../lib/assetStorage';
 import { createModelAsset, createTextureAsset } from '../lib/files';
@@ -11,6 +11,7 @@ const tools: Array<{ id: EditorTool; label: string; hint: string; icon: typeof M
   { id: 'rectangle', label: 'Комната', hint: 'R', icon: Square },
   { id: 'triangle', label: 'Треугольник', hint: 'T', icon: Triangle },
   { id: 'polygon', label: 'Контур', hint: 'P', icon: PenTool },
+  { id: 'wall', label: 'Стена', hint: 'L', icon: BrickWall },
 ];
 
 const builtIns: Array<{ id: BuiltInModelKind; label: string; icon: typeof Box }> = [
@@ -28,6 +29,7 @@ export function ToolPanel() {
   const modelInput = useRef<HTMLInputElement>(null);
   const tool = useEditorStore((state) => state.tool);
   const polygonPointCount = useEditorStore((state) => state.draftPolygon.length);
+  const wallStarted = useEditorStore((state) => Boolean(state.draftWallStart));
   const textures = useEditorStore((state) => state.textures);
   const modelAssets = useEditorStore((state) => state.modelAssets);
   const setTool = useEditorStore((state) => state.setTool);
@@ -73,7 +75,9 @@ export function ToolPanel() {
         <div className="tool-grid">
           {tools.map((item) => { const Icon = item.icon; return <button className={tool === item.id ? 'active' : ''} key={item.id} onClick={() => setTool(item.id)} type="button"><Icon size={19} /><span>{item.label}</span><kbd>{item.hint}</kbd></button>; })}
         </div>
-        <p className="panel-note">{tool === 'polygon' ? `Контур: ставьте точки на сетке${polygonPointCount ? ` · точек ${polygonPointCount}` : ''}. Двойной клик или Enter — готово, Escape — отмена.` : 'Выберите фигуру, затем нажмите на сетку. Размеры и высоту можно изменить справа.'}</p>
+        <p className="panel-note">{tool === 'polygon' ? `Контур: ставьте точки на сетке${polygonPointCount ? ` · точек ${polygonPointCount}` : ''}. Двойной клик или Enter — готово, Escape — отмена.`
+          : tool === 'wall' ? `${wallStarted ? 'Укажите конечную точку' : 'Укажите начало стены'}. Точки привязываются к сетке 0,5 м, Escape — отмена.`
+            : 'Выберите фигуру, затем нажмите на сетку. Размеры и высоту можно изменить справа.'}</p>
       </section>
 
       <section>
