@@ -78,7 +78,7 @@ export function ToolPanel() {
           {tools.map((item) => { const Icon = item.icon; return <button className={tool === item.id ? 'active' : ''} key={item.id} onClick={() => setTool(item.id)} type="button"><Icon size={19} /><span>{item.label}</span><kbd>{item.hint}</kbd></button>; })}
         </div>
         <p className="panel-note">{tool === 'polygon' ? `Контур: ставьте точки на сетке${polygonPointCount ? ` · точек ${polygonPointCount}` : ''}. Двойной клик или Enter — готово, Escape — отмена.`
-          : tool === 'wall' ? `${wallSegmentCount ? `Продолжайте цепочку · сегментов ${wallSegmentCount}` : wallStarted ? 'Укажите конечную точку' : 'Укажите начало цепочки'}. Сетка 0,5 м и магнит к стенам${wallSnapKind ? ` · ${wallSnapKind === 'segment' ? 'Т-соединение' : 'соединение'} найдено` : ''}. Enter или Escape — завершить.`
+          : tool === 'wall' ? `${wallSegmentCount ? `Продолжайте цепочку · сегментов ${wallSegmentCount}` : wallStarted ? 'Укажите конечную точку' : 'Укажите начало цепочки'}. Сетка 0,5 м и магнит к стенам${wallSnapKind ? ` · ${wallSnapKind === 'segment' ? 'Т-соединение' : 'соединение'} найдено` : ''}. После первой точки доступны точная длина и угол.`
             : 'Выберите фигуру, затем нажмите на сетку. Размеры и высоту можно изменить справа.'}</p>
       </section>
 

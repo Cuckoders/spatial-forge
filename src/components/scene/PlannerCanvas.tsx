@@ -89,7 +89,7 @@ function DraftWall() {
         <boxGeometry args={[length, 2.8, 0.16]} />
         <meshBasicMaterial color="#D7EF35" opacity={0.28} transparent />
       </mesh> : null}
-      <Html center position={[0, 3.05, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[35, 0]}><div className="wall-measure-label">{length.toFixed(2)} м</div></Html>
+      <Html center position={[0, 3.05, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[35, 0]}><div className="wall-measure-label">{length.toFixed(2)} м · {((angle * 180 / Math.PI + 360) % 360).toFixed(1)}°</div></Html>
     </group>
     {[start, end].map((point, index) => <mesh key={index} position={[point[0], elevation + 0.24, point[1]]} raycast={() => undefined}>
       <sphereGeometry args={[index === 1 && snap ? 0.16 : 0.12, 14, 10]} /><meshBasicMaterial color={index === 0 ? '#202522' : snap ? '#FFFFFF' : '#D7EF35'} depthTest={false} />
@@ -101,6 +101,36 @@ function DraftWall() {
       <Html center position={[0, 0.48, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[45, 0]}><div className="wall-snap-label">{snap.kind === 'segment' ? 'Т-соединение' : 'Соединение'}</div></Html>
     </group> : null}
   </group>;
+}
+
+function WallPrecisionPanel() {
+  const lengthInput = useRef<HTMLInputElement>(null);
+  const tool = useEditorStore((state) => state.tool);
+  const start = useEditorStore((state) => state.draftWallStart);
+  const end = useEditorStore((state) => state.draftWallEnd);
+  const precision = useEditorStore((state) => state.draftWallPrecision);
+  const segmentCount = useEditorStore((state) => state.draftWallChain?.segmentCount ?? 0);
+  const setWallDraftPolar = useEditorStore((state) => state.setWallDraftPolar);
+  const commitWallDraft = useEditorStore((state) => state.commitWallDraft);
+  const completeWallChain = useEditorStore((state) => state.completeWallChain);
+  if (tool !== 'wall' || !start || !end) return null;
+  const dx = end[0] - start[0]; const dz = end[1] - start[1];
+  const length = Math.hypot(dx, dz);
+  const angle = (Math.atan2(dz, dx) * 180 / Math.PI + 360) % 360;
+  const update = (nextLength: number, nextAngle: number) => {
+    if (Number.isFinite(nextLength) && Number.isFinite(nextAngle)) setWallDraftPolar(nextLength, nextAngle);
+  };
+  return <form aria-label="Точное построение стены" className={`wall-precision-panel${precision ? ' locked' : ''}`}
+    onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); completeWallChain(); } }}
+    onSubmit={(event) => { event.preventDefault(); commitWallDraft(); requestAnimationFrame(() => lengthInput.current?.select()); }}>
+    <div className="wall-precision-head"><span>Точный сегмент</span><b>{precision ? 'зафиксирован' : 'по курсору'}</b></div>
+    <div className="wall-precision-fields">
+      <label><span>Длина</span><div><input aria-label="Точная длина сегмента" max={100} min={0.25} onChange={(event) => update(event.target.valueAsNumber, angle)} ref={lengthInput} step={0.05} type="number" value={Number(length.toFixed(3))} /><small>м</small></div></label>
+      <label><span>Угол</span><div><input aria-label="Точный угол сегмента" max={360} min={-360} onChange={(event) => update(length, event.target.valueAsNumber)} step={1} type="number" value={Number(angle.toFixed(2))} /><small>°</small></div></label>
+    </div>
+    <p>0° — направление +X · 90° — направление +Z</p>
+    <div className="wall-precision-actions"><button disabled={length < 0.25} type="submit">Добавить сегмент <kbd>Enter</kbd></button><button onClick={completeWallChain} type="button">{segmentCount ? 'Завершить цепочку' : 'Отмена'}</button></div>
+  </form>;
 }
 
 function SnapGuides() {
@@ -280,7 +310,8 @@ export function PlannerCanvas() {
       <SceneContents selectionBoxRef={selectionBoxRef} />
     </Canvas>
     <div aria-hidden="true" className="selection-box" hidden ref={selectionBoxRef} />
-    <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> следующая точка · <kbd>Enter / Esc</kbd> завершить</>
+    <WallPrecisionPanel />
+    <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> следующая точка · в полях <kbd>Enter</kbd> добавить · <kbd>Esc</kbd> завершить</>
       : cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</>
         : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
   </div>;

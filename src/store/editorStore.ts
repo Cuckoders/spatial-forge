@@ -31,6 +31,7 @@ interface EditorState {
   draftWallEnd: Point2 | null;
   draftWallSnap: WallSnapTarget | null;
   draftWallChain: { start: Point2; segmentCount: number } | null;
+  draftWallPrecision: boolean;
   selection: Selection | null;
   snapGuides: SnapGuide[];
   transformMode: TransformMode;
@@ -51,7 +52,9 @@ interface EditorState {
   addRoomAt: (shape: PlanRoom['shape'], x: number, z: number) => void;
   addPolygonPoint: (x: number, z: number) => void;
   previewWall: (x: number, z: number) => void;
-  addWallPoint: (x: number, z: number) => void;
+  addWallPoint: (x: number, z: number, exact?: boolean) => void;
+  setWallDraftPolar: (length: number, angleDegrees: number) => void;
+  commitWallDraft: () => void;
   completeWallChain: () => void;
   completePolygon: () => void;
   cancelPolygon: () => void;
@@ -304,6 +307,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   draftWallEnd: null,
   draftWallSnap: null,
   draftWallChain: null,
+  draftWallPrecision: false,
   selection: null,
   snapGuides: [],
   transformMode: 'translate',
@@ -316,15 +320,15 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   setProjectName: (name) => set({ projectName: cleanText(name, 80) || 'Новый проект' }),
   setProjectType: (projectType) => set({ projectType, selection: null, snapGuides: [] }),
   updateSite: (patch) => set((state) => ({ site: { width: clamp(patch.width ?? state.site.width, 4, 200), depth: clamp(patch.depth ?? state.site.depth, 4, 200) } })),
-  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [] }),
+  setTool: (tool) => set({ tool, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] }),
   select: (selection, additive = false) => set((state) => {
-    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [] };
+    if (!additive || !selection || !isObjectSelection(selection)) return { selection, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] };
     const currentItems = state.selection?.kind === 'group' ? state.selection.items
       : state.selection && isObjectSelection(state.selection) ? [state.selection] : [];
     const key = objectSelectionKey(selection);
     const exists = currentItems.some((item) => objectSelectionKey(item) === key);
     const items = exists ? currentItems.filter((item) => objectSelectionKey(item) !== key) : [...currentItems, selection];
-    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [] };
+    return { selection: collapseObjectSelection(items), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] };
   }),
   selectObjects: (selections, additive = false) => set((state) => {
     const currentItems = additive
@@ -332,10 +336,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       : [];
     const items = new Map(currentItems.map((item) => [objectSelectionKey(item), item]));
     for (const selection of selections) items.set(objectSelectionKey(selection), selection);
-    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [] };
+    return { selection: collapseObjectSelection([...items.values()]), tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] };
   }),
   setSnapGuides: (snapGuides) => set({ snapGuides }),
-  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [] }),
+  setTransformMode: (transformMode) => set({ transformMode, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] }),
   addRoomAt: (shape, x, z) => set((state) => {
     const id = newId('block'); const count = state.rooms.filter((room) => room.floorId === state.activeFloorId).length + 1;
     const room: PlanRoom = { id, floorId: state.activeFloorId, name: shape === 'triangle' ? `Треугольник ${count}` : `Комната ${count}`,
@@ -354,16 +358,19 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     set({ draftPolygon: [...points, point], message: points.length === 0 ? 'Поставьте ещё минимум две точки' : null });
   },
   previewWall: (x, z) => set((state) => {
-    if (state.tool !== 'wall' || !state.draftWallStart) return state;
+    if (state.tool !== 'wall' || !state.draftWallStart || state.draftWallPrecision) return state;
     const snapped = snapWallPoint(x, z, state.walls, state.wallOpenings, state.activeFloorId);
     return { draftWallEnd: snapped.point, draftWallSnap: snapped.target };
   }),
-  addWallPoint: (x, z) => set((state) => {
+  addWallPoint: (x, z, exact = false) => set((state) => {
     if (state.tool !== 'wall') return state;
-    const snapped = snapWallPoint(x, z, state.walls, state.wallOpenings, state.activeFloorId);
+    const snapped = exact
+      ? { point: [clamp(x, -200, 200), clamp(z, -200, 200)] as Point2, target: null }
+      : snapWallPoint(x, z, state.walls, state.wallOpenings, state.activeFloorId);
     const point = snapped.point;
     if (!state.draftWallStart) return { draftWallStart: point, draftWallStartSnap: snapped.target, draftWallEnd: point, draftWallSnap: snapped.target,
       draftWallChain: { start: point, segmentCount: 0 },
+      draftWallPrecision: false,
       message: snapped.target?.kind === 'segment' ? 'Начало привязано к середине стены · укажите конечную точку'
         : snapped.target ? 'Начало соединено со стеной · укажите конечную точку' : 'Укажите конечную точку стены' };
     const length = Math.hypot(point[0] - state.draftWallStart[0], point[1] - state.draftWallStart[1]);
@@ -384,18 +391,35 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const connectionMessage = split.splitCount ? ` · Т-соединений: ${split.splitCount}` : hasEndpointConnection ? ' · соединение' : '';
     if (closesChain) return { walls: [...split.walls, wall], wallOpenings: split.wallOpenings, selection: { kind: 'partition', id }, tool: 'select',
       draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null,
+      draftWallPrecision: false,
       message: `Цепочка замкнута · стен: ${segmentCount}${connectionMessage}` };
     return { walls: [...split.walls, wall], wallOpenings: split.wallOpenings, selection: null, tool: 'wall',
       draftWallStart: point, draftWallStartSnap: { wallId: id, kind: 'endpoint', endpoint: 'end', x: point[0], z: point[1] },
       draftWallEnd: point, draftWallSnap: null, draftWallChain: { start: chain.start, segmentCount },
+      draftWallPrecision: false,
       message: `Сегмент ${segmentCount} создан · ${length.toFixed(2)} м${connectionMessage} · продолжайте цепочку` };
   }),
+  setWallDraftPolar: (length, angleDegrees) => set((state) => {
+    if (state.tool !== 'wall' || !state.draftWallStart || !Number.isFinite(length) || !Number.isFinite(angleDegrees)) return state;
+    const safeLength = clamp(length, 0.25, 100);
+    const angle = radians(normalizeDegrees(angleDegrees));
+    const end = [state.draftWallStart[0] + Math.cos(angle) * safeLength, state.draftWallStart[1] + Math.sin(angle) * safeLength] as Point2;
+    return { draftWallEnd: end, draftWallSnap: null, draftWallPrecision: true, message: null };
+  }),
+  commitWallDraft: () => {
+    const state = get();
+    if (state.tool !== 'wall' || !state.draftWallStart || !state.draftWallEnd) return;
+    const length = Math.hypot(state.draftWallEnd[0] - state.draftWallStart[0], state.draftWallEnd[1] - state.draftWallStart[1]);
+    if (length < 0.25) { set({ message: 'Введите длину стены не меньше 0,25 м' }); return; }
+    get().addWallPoint(state.draftWallEnd[0], state.draftWallEnd[1], true);
+  },
   completeWallChain: () => set((state) => {
     if (state.tool !== 'wall') return state;
     const segmentCount = state.draftWallChain?.segmentCount ?? 0;
     const lastWall = segmentCount ? state.walls.at(-1) : undefined;
     return { tool: 'select', selection: lastWall ? { kind: 'partition', id: lastWall.id } : null,
       draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null,
+      draftWallPrecision: false,
       message: segmentCount ? `Цепочка завершена · стен: ${segmentCount}` : 'Построение стены отменено' };
   }),
   completePolygon: () => set((state) => {
@@ -417,7 +441,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   cancelPolygon: () => set((state) => {
     const segmentCount = state.draftWallChain?.segmentCount ?? 0;
     const lastWall = segmentCount ? state.walls.at(-1) : undefined;
-    return { draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, tool: 'select',
+    return { draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, tool: 'select',
       ...(state.tool === 'wall' && segmentCount ? { selection: lastWall ? { kind: 'partition' as const, id: lastWall.id } : null, message: `Цепочка завершена · стен: ${segmentCount}` }
         : state.draftPolygon.length || state.draftWallStart ? { message: 'Построение отменено' } : {}) };
   }),
@@ -670,7 +694,7 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       showAllFloors: false, message: 'Этаж скопирован вместе с содержимым' };
   }),
   setActiveFloor: (activeFloorId) => set((state) => state.floors.some((floor) => floor.id === activeFloorId)
-    ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [] } : state),
+    ? { activeFloorId, selection: null, draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [] } : state),
   removeActiveFloor: () => set((state) => {
     if (state.floors.length === 1) return { message: 'В проекте должен остаться хотя бы один этаж' };
     const remaining = state.floors.filter((floor) => floor.id !== state.activeFloorId);
@@ -828,12 +852,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   requestCapture: () => set((state) => ({ captureRevision: state.captureRevision + 1 })),
   loadProject: (project) => set({ projectName: project.name, projectType: project.projectType, site: project.site,
     floors: project.floors, rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [], message: 'Планировка загружена' }),
+    activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Планировка загружена' }),
   resetProject: () => {
     const project = demoProject();
     set({ projectName: project.name, projectType: project.projectType, site: project.site, floors: project.floors,
       rooms: project.rooms, walls: project.walls, wallOpenings: project.wallOpenings, wallFinishes: project.wallFinishes, openings: project.openings, modelInstances: project.modelInstances,
-      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [], message: 'Демо-проект восстановлен' });
+      activeFloorId: project.floors[0]?.id ?? '', showAllFloors: false, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Демо-проект восстановлен' });
   },
   notify: (message) => set({ message }),
   undo: () => undoHistory(),
@@ -884,7 +908,7 @@ function undoHistory() {
   if (!previous) return;
   historyFuture.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
+  useEditorStore.setState({ ...previous, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Действие отменено', canUndo: historyPast.length > 0, canRedo: true });
 }
 
 function redoHistory() {
@@ -893,7 +917,7 @@ function redoHistory() {
   if (!next) return;
   historyPast.push(captureHistory(useEditorStore.getState()));
   restoringHistory = true;
-  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
+  useEditorStore.setState({ ...next, selection: null, tool: 'select', draftPolygon: [], draftWallStart: null, draftWallStartSnap: null, draftWallEnd: null, draftWallSnap: null, draftWallChain: null, draftWallPrecision: false, snapGuides: [], message: 'Действие повторено', canUndo: true, canRedo: historyFuture.length > 0 });
 }
 
 lastHistorySnapshot = captureHistory(useEditorStore.getState());
