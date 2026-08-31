@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { BrickWall, Cable, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, House, Layers3, Link2, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
+import { ArrowRight, BrickWall, Cable, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, House, Layers3, Link2, Move3D, PanelTop, Plus, Power, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { UTILITY_DEVICE_KINDS, UTILITY_KINDS, utilityLength, utilityRouteProjection } from '../lib/utilities';
 import { resolveUtilityDeviceMount, utilityWallMountLabel } from '../lib/utilityWallMounts';
 import { analyzeUtilityNetworks, type UtilityRouteAnalysis } from '../lib/utilityAnalysis';
 import { useEditorStore } from '../store/editorStore';
-import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening } from '../types';
+import type { ObjectSelection, PlanFloor, PlanUtilityRoute, Selection, StandaloneWallOpening, UtilityDeviceKind, UtilityKind, UtilityRouteEnd, WallFinish, WallOpening } from '../types';
 
 const wallPalette = ['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'];
 
@@ -21,9 +21,23 @@ function UtilityDiameterAudit({ diameter, analysis, onApply }: { diameter: numbe
   const undersized = diameter + 0.000_001 < analysis.recommendedDiameter;
   return <section className="inspector-section"><div className="inspector-title"><span>Проверка нагрузки</span><Cable size={16} /></div>
     <div className={`connection-status${undersized ? ' warning' : ' connected'}`}><span /><div><b>{undersized ? 'Диаметр меньше рекомендации' : 'Диаметр соответствует нагрузке'}</b><small>Фактически {(diameter * 1000).toFixed(0)} мм · рекомендуется {(analysis.recommendedDiameter * 1000).toFixed(0)} мм</small></div></div>
-    <div className="route-load-summary"><span><b>{analysis.demand.toFixed(analysis.demand % 1 ? 1 : 0)}</b><small>{analysis.demandUnit}</small></span><span><b>{analysis.connectedDeviceCount}</b><small>подключённых точек</small></span><span><b>{analysis.networkRouteCount}</b><small>трасс в связанном участке</small></span></div>
+    <div className="route-load-summary"><span><b>{analysis.demand.toFixed(analysis.demand % 1 ? 1 : 0)}</b><small>{analysis.sourceCount === 1 ? `нагрузка ветви, ${analysis.demandUnit}` : analysis.demandUnit}</small></span><span><b>{analysis.connectedDeviceCount}</b><small>{analysis.sourceCount === 1 ? 'точек ниже по потоку' : 'подключённых точек'}</small></span><span><b>{analysis.networkRouteCount}</b><small>трасс в связанном участке</small></span></div>
     {undersized ? <button className="connection-auto" onClick={() => onApply(analysis.recommendedDiameter)} type="button">Применить рекомендацию · {(analysis.recommendedDiameter * 1000).toFixed(0)} мм</button> : null}
-    <p className="vertex-note">Расчёт консервативный: нагрузка суммируется для трасс, связанных узлами и стояками.</p>
+    <p className="vertex-note">{analysis.sourceCount === 1 ? `Вся сеть: ${analysis.networkDemand.toFixed(analysis.networkDemand % 1 ? 1 : 0)} ${analysis.demandUnit}. Диаметр рассчитан по точкам ниже по потоку.` : 'Пока источник не задан однозначно, применяется консервативная нагрузка всей связанной сети.'}</p>
+  </section>;
+}
+
+function UtilitySourceEditor({ route, analysis, sourceName, onSet }: { route: PlanUtilityRoute; analysis: UtilityRouteAnalysis | undefined; sourceName: string | undefined; onSet: (sourceEnd?: UtilityRouteEnd) => void }) {
+  if (!analysis) return null;
+  const direction = analysis.flowDirection === 'forward' ? 'Начало → конец' : analysis.flowDirection === 'reverse' ? 'Конец → начало' : 'Не рассчитано';
+  const sourceProblem = analysis.sourceCount !== 1;
+  return <section className="inspector-section"><div className="inspector-title"><span>Источник и поток</span><Power size={16} /></div>
+    <div className={`connection-status${sourceProblem ? ' warning' : ' connected'}`}><span /><div><b>{analysis.sourceCount === 0 ? 'Источник не назначен' : analysis.sourceCount > 1 ? 'Несколько источников' : route.sourceEnd ? 'Источник этой сети' : `Поток: ${direction}`}</b><small>{analysis.sourceCount === 1 ? route.sourceEnd ? `Подача начинается здесь · ${direction}` : `От «${sourceName ?? 'источника сети'}»` : 'Для точного расчёта нужен один источник'}</small></div></div>
+    <div aria-label="Конец трассы с источником" className="source-direction-tabs" role="group">
+      <button aria-pressed={route.sourceEnd === 'start'} className={route.sourceEnd === 'start' ? 'active' : ''} onClick={() => onSet('start')} type="button"><Power size={13} /> Начало <ArrowRight size={13} /></button>
+      <button aria-pressed={route.sourceEnd === 'end'} className={route.sourceEnd === 'end' ? 'active' : ''} onClick={() => onSet('end')} type="button"><ArrowRight size={13} /> Конец <Power size={13} /></button>
+    </div>
+    {route.sourceEnd ? <button className="source-remove" onClick={() => onSet()} type="button">Снять источник с трассы</button> : <p className="vertex-note">Выберите конец, через который энергия или теплоноситель поступает в сеть. Другой источник этого участка будет снят автоматически.</p>}
   </section>;
 }
 
@@ -187,11 +201,13 @@ function UtilityInspector({ id }: { id: string }) {
   const risers = useEditorStore((state) => state.utilityRisers);
   const junctions = useEditorStore((state) => state.utilityJunctions);
   const updateUtility = useEditorStore((state) => state.updateUtility);
+  const setUtilitySource = useEditorStore((state) => state.setUtilitySource);
   const duplicateUtility = useEditorStore((state) => state.duplicateUtility);
   const removeUtility = useEditorStore((state) => state.removeUtility);
   const analysisByRoute = useMemo(() => analyzeUtilityNetworks({ routes, devices, risers, junctions }), [devices, junctions, risers, routes]);
   if (!route) return <EmptyInspector />;
   const analysis = analysisByRoute.get(route.id);
+  const sourceName = analysis?.sourceRouteId ? routes.find((item) => item.id === analysis.sourceRouteId)?.name : undefined;
   const length = utilityLength(route);
   const angle = Math.atan2(route.endZ - route.startZ, route.endX - route.startX);
   const setLength = (nextLength: number) => updateUtility(route.id, {
@@ -212,6 +228,7 @@ function UtilityInspector({ id }: { id: string }) {
       <div className="field-row"><NumericField ariaLabel="Высота трассы" label="Над уровнем этажа" max={12} min={0.01} onChange={(elevation) => updateUtility(route.id, { elevation })} step={0.01} unit="м" value={route.elevation} /><NumericField ariaLabel="Диаметр трассы" label="Диаметр" max={500} min={5} onChange={(diameter) => updateUtility(route.id, { diameter: diameter / 1000 })} step={1} unit="мм" value={route.diameter * 1000} /></div>
       <div className="utility-summary"><span style={{ background: UTILITY_KINDS[route.kind].color }} /><b>{UTILITY_KINDS[route.kind].label}</b><small>{length.toFixed(2)} м · {(angle * 180 / Math.PI + 360) % 360 < 0.05 ? '0' : ((angle * 180 / Math.PI + 360) % 360).toFixed(1)}°</small></div>
     </section>
+    <UtilitySourceEditor analysis={analysis} onSet={(sourceEnd) => setUtilitySource(route.id, sourceEnd)} route={route} sourceName={sourceName} />
     <UtilityDiameterAudit analysis={analysis} diameter={route.diameter} onApply={(diameter) => updateUtility(route.id, { diameter })} />
     <div className="inspector-actions"><button onClick={() => duplicateUtility(route.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeUtility(route.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
   </>;

@@ -8,10 +8,11 @@ import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVert
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
 import { createProjectFromTemplate } from '../lib/projectTemplates';
+import { connectedUtilityRouteIds } from '../lib/utilityAnalysis';
 import { nearbyUtilityRoutesOfKind, nearestUtilityRoute, nearestUtilityRouteOfKind, UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
 import { nearestUtilityWallMount, resolveUtilityDeviceMount } from '../lib/utilityWallMounts';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
-import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityJunction, PlanUtilityRiser, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening, WallSnapTarget } from '../types';
+import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityJunction, PlanUtilityRiser, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, UtilityRouteEnd, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
 interface EditorState {
   projectName: string;
@@ -78,6 +79,7 @@ interface EditorState {
   addUtilityPoint: (x: number, z: number) => void;
   completeUtilityChain: () => void;
   updateUtility: (id: string, patch: Partial<PlanUtilityRoute>) => void;
+  setUtilitySource: (id: string, sourceEnd?: UtilityRouteEnd) => void;
   duplicateUtility: (id: string) => void;
   removeUtility: (id: string) => void;
   setUtilityDeviceKind: (kind: UtilityDeviceKind) => void;
@@ -545,7 +547,8 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   updateUtility: (id, patch) => set((state) => {
     const source = state.utilities.find((route) => route.id === id); if (!source) return state;
     const kind = patch.kind && ['electric', 'water', 'heating'].includes(patch.kind) ? patch.kind : source.kind;
-    const route = normalizedUtility({ ...source, ...patch, id: source.id, floorId: source.floorId, kind });
+    const route = normalizedUtility({ ...source, ...patch, id: source.id, floorId: source.floorId, kind,
+      ...(kind !== source.kind ? { sourceEnd: undefined } : {}) });
     if (Math.hypot(route.endX - route.startX, route.endZ - route.startZ) < 0.1) return { message: 'Длина трассы должна быть не меньше 0,1 м' };
     const utilityDevices = state.utilityDevices.map((device) => device.routeId === id && UTILITY_DEVICE_KINDS[device.kind].utilityKind !== kind
       ? { ...device, routeId: undefined } : device);
@@ -558,10 +561,20 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     return { utilities: state.utilities.map((item) => item.id === id ? route : item), utilityDevices, utilityRisers, utilityJunctions,
       utilityVisibility: { ...state.utilityVisibility, [kind]: true } };
   }),
+  setUtilitySource: (id, sourceEnd) => set((state) => {
+    const route = state.utilities.find((item) => item.id === id); if (!route) return state;
+    if (!sourceEnd) return { utilities: state.utilities.map((item) => item.id === id ? { ...item, sourceEnd: undefined } : item),
+      message: `Источник сети «${route.name}» снят` };
+    const connectedRouteIds = connectedUtilityRouteIds(id, { routes: state.utilities, devices: state.utilityDevices,
+      risers: state.utilityRisers, junctions: state.utilityJunctions });
+    return { utilities: state.utilities.map((item) => connectedRouteIds.has(item.id)
+      ? { ...item, sourceEnd: item.id === id ? sourceEnd : undefined } : item),
+    message: `Источник сети назначен · поток ${sourceEnd === 'start' ? 'от начала к концу' : 'от конца к началу'}` };
+  }),
   duplicateUtility: (id) => set((state) => {
     const source = state.utilities.find((route) => route.id === id); if (!source) return state;
     const copy = { ...source, id: newId('utility'), name: `${source.name} — копия`.slice(0, 80), startX: source.startX + 0.5,
-      startZ: source.startZ + 0.5, endX: source.endX + 0.5, endZ: source.endZ + 0.5 };
+      startZ: source.startZ + 0.5, endX: source.endX + 0.5, endZ: source.endZ + 0.5, sourceEnd: undefined };
     return { utilities: [...state.utilities, copy], selection: { kind: 'utility', id: copy.id }, message: 'Трасса скопирована' };
   }),
   removeUtility: (id) => set((state) => ({ utilities: state.utilities.filter((route) => route.id !== id),

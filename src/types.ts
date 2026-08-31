@@ -8,6 +8,7 @@ export type RoofType = 'flat' | 'gable';
 export type RoofRidgeDirection = 'x' | 'z';
 export type UtilityKind = 'electric' | 'water' | 'heating';
 export type UtilityDeviceKind = 'outlet' | 'switch' | 'panel' | 'waterPoint' | 'drain' | 'radiator';
+export type UtilityRouteEnd = 'start' | 'end';
 
 export type UtilityWallMount =
   | { kind: 'room'; sourceId: string; wallIndex: number; offset: number; side: -1 | 1 }
@@ -147,6 +148,7 @@ export interface PlanUtilityRoute {
   endZ: number;
   elevation: number;
   diameter: number;
+  sourceEnd?: UtilityRouteEnd | undefined;
 }
 
 export interface PlanUtilityDevice {

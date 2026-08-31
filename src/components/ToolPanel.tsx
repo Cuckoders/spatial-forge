@@ -73,6 +73,15 @@ export function ToolPanel() {
   const activeUtilityJunctions = utilityJunctions.filter((junction) => junction.floorId === activeFloorId);
   const utilityAnalysis = useMemo(() => analyzeUtilityNetworks({ routes: utilities, devices: utilityDevices, risers: utilityRisers, junctions: utilityJunctions }),
     [utilities, utilityDevices, utilityJunctions, utilityRisers]);
+  const activeNetworkAnalyses = useMemo(() => {
+    const networks = new Map<string, ReturnType<typeof utilityAnalysis.get>>();
+    for (const route of utilities) {
+      if (route.floorId !== activeFloorId) continue;
+      const analysis = utilityAnalysis.get(route.id); if (analysis) networks.set(analysis.networkId, analysis);
+    }
+    return [...networks.values()].flatMap((analysis) => analysis ? [analysis] : []);
+  }, [activeFloorId, utilities, utilityAnalysis]);
+  const networkSourceIssueCount = activeNetworkAnalyses.filter((analysis) => analysis.sourceCount !== 1).length;
   const recommendedForRoutes = (routeIds: Array<string | undefined>) => routeIds.reduce((maximum, routeId) => Math.max(maximum, routeId ? utilityAnalysis.get(routeId)?.recommendedDiameter ?? 0 : 0), 0);
   const undersizedActiveRouteCount = utilities.filter((route) => route.floorId === activeFloorId && utilityAnalysis.get(route.id)?.undersized).length;
   const undersizedActiveRiserCount = activeUtilityRisers.filter((riser) => riser.diameter + 0.000_001 < recommendedForRoutes([riser.fromRouteId, riser.toRouteId])).length;
@@ -130,6 +139,7 @@ export function ToolPanel() {
             <button aria-label={`${visible ? 'Скрыть' : 'Показать'}: ${item.label}`} aria-pressed={visible} className={`utility-visibility${visible ? ' visible' : ''}`} onClick={() => toggleUtilityVisibility(item.id)} title={`${visible ? 'Скрыть' : 'Показать'} трассы`} type="button">{visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
           </div>; })}
         </div>
+        {networkSourceIssueCount ? <div className="connection-audit"><span>{networkSourceIssueCount}</span><div><b>Источники не настроены</b><small>Назначьте один источник каждой связанной сети</small></div></div> : activeNetworkAnalyses.length ? <div className="connection-audit ready"><span>→</span><div><b>Направления рассчитаны</b><small>Нагрузка распределена по ветвям</small></div></div> : null}
         {undersizedActiveElementCount ? <div className="connection-audit"><span>{undersizedActiveElementCount}</span><div><b>Недостаточный диаметр</b><small>Проверьте трассы, стояки и узлы</small></div></div> : utilities.some((route) => route.floorId === activeFloorId) ? <div className="connection-audit ready"><span>✓</span><div><b>Диаметры проверены</b><small>Связанный участок соответствует нагрузке</small></div></div> : null}
         <div className="utility-device-heading"><b>Стояки между этажами</b><span>{activeUtilityRisers.length}</span></div>
         <div className="utility-riser-grid">{utilityKinds.map((item) => { const count = activeUtilityRisers.filter((riser) => riser.kind === item.id).length; return <button aria-pressed={tool === 'utility-riser' && utilityKind === item.id} className={tool === 'utility-riser' && utilityKind === item.id ? 'active' : ''} disabled={floorCount < 2} key={item.id} onClick={() => { setUtilityKind(item.id); setTool('utility-riser'); }} type="button"><MoveUpRight size={14} style={{ color: item.color }} /><b>{item.id === 'electric' ? 'Эл. стояк' : item.id === 'water' ? 'Вода' : 'Тепло'}</b>{count ? <small>{count}</small> : null}</button>; })}</div>

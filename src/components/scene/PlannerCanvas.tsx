@@ -6,6 +6,7 @@ import { MOUSE, TOUCH, Vector3, type Camera } from 'three';
 import { downloadBlob, safeDownloadName } from '../../lib/files';
 import { boundsForModel, boundsForRoom, type Bounds2D } from '../../lib/snapping';
 import { UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../../lib/utilities';
+import { analyzeUtilityNetworks } from '../../lib/utilityAnalysis';
 import { resolveUtilityDeviceMount } from '../../lib/utilityWallMounts';
 import { wallJoinOffsetsMap } from '../../lib/wallJoins';
 import { useEditorStore } from '../../store/editorStore';
@@ -231,6 +232,8 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const wallJoins = useMemo(() => wallJoinOffsetsMap(walls), [walls]);
   const floorsById = useMemo(() => new Map(floors.map((floor) => [floor.id, floor])), [floors]);
   const utilitiesById = useMemo(() => new Map(utilities.map((route) => [route.id, route])), [utilities]);
+  const utilityAnalysis = useMemo(() => analyzeUtilityNetworks({ routes: utilities, devices: utilityDevices, risers: utilityRisers, junctions: utilityJunctions }),
+    [utilities, utilityDevices, utilityJunctions, utilityRisers]);
   const resolvedUtilityDevices = useMemo(() => utilityDevices.map((device) => resolveUtilityDeviceMount(device, rooms, walls)), [rooms, utilityDevices, walls]);
 
   useEffect(() => {
@@ -335,7 +338,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
         {walls.filter((wall) => wall.floorId === floor.id).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation}
           joins={wallJoins.get(wall.id)!} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
-        {utilities.filter((route) => route.floorId === floor.id && utilityVisibility[route.kind]).map((route) => <UtilityRouteMesh active={active} floorElevation={floor.elevation} key={route.id} route={route} />)}
+        {utilities.filter((route) => route.floorId === floor.id && utilityVisibility[route.kind]).map((route) => <UtilityRouteMesh active={active} analysis={utilityAnalysis.get(route.id)} floorElevation={floor.elevation} key={route.id} route={route} />)}
         {resolvedUtilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} route={device.routeId ? utilitiesById.get(device.routeId) : undefined} />)}
         {utilityJunctions.filter((junction) => junction.floorId === floor.id && utilityVisibility[junction.kind]).map((junction) => <UtilityJunctionMesh active={active} floorElevation={floor.elevation} junction={junction} key={junction.id} routesById={utilitiesById} />)}
       </group>;

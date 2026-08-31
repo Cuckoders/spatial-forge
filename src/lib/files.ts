@@ -106,11 +106,13 @@ function readUtility(value: unknown, floorIds: Set<string>): PlanUtilityRoute | 
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)
     || !['electric', 'water', 'heating'].includes(String(value.kind)) || !finite(value.startX, -200, 200) || !finite(value.startZ, -200, 200)
     || !finite(value.endX, -200, 200) || !finite(value.endZ, -200, 200) || !finite(value.elevation, 0.01, 12)
+    || (value.sourceEnd !== undefined && !['start', 'end'].includes(String(value.sourceEnd)))
     || !finite(value.diameter, 0.005, 0.5) || Math.hypot(value.endX - value.startX, value.endZ - value.startZ) < 0.1) return undefined;
   const name = text(value.name, 80);
   if (!name) return undefined;
   return { id: value.id, floorId: value.floorId, name, kind: value.kind as PlanUtilityRoute['kind'], startX: value.startX,
-    startZ: value.startZ, endX: value.endX, endZ: value.endZ, elevation: value.elevation, diameter: value.diameter };
+    startZ: value.startZ, endX: value.endX, endZ: value.endZ, elevation: value.elevation, diameter: value.diameter,
+    ...(value.sourceEnd === 'start' || value.sourceEnd === 'end' ? { sourceEnd: value.sourceEnd } : {}) };
 }
 
 function readUtilityRiser(value: unknown, floorIds: Set<string>): PlanUtilityRiser | undefined {
