@@ -30,6 +30,7 @@ export function ToolPanel() {
   const tool = useEditorStore((state) => state.tool);
   const polygonPointCount = useEditorStore((state) => state.draftPolygon.length);
   const wallStarted = useEditorStore((state) => Boolean(state.draftWallStart));
+  const wallSnapActive = useEditorStore((state) => Boolean(state.draftWallSnap));
   const textures = useEditorStore((state) => state.textures);
   const modelAssets = useEditorStore((state) => state.modelAssets);
   const setTool = useEditorStore((state) => state.setTool);
@@ -76,7 +77,7 @@ export function ToolPanel() {
           {tools.map((item) => { const Icon = item.icon; return <button className={tool === item.id ? 'active' : ''} key={item.id} onClick={() => setTool(item.id)} type="button"><Icon size={19} /><span>{item.label}</span><kbd>{item.hint}</kbd></button>; })}
         </div>
         <p className="panel-note">{tool === 'polygon' ? `Контур: ставьте точки на сетке${polygonPointCount ? ` · точек ${polygonPointCount}` : ''}. Двойной клик или Enter — готово, Escape — отмена.`
-          : tool === 'wall' ? `${wallStarted ? 'Укажите конечную точку' : 'Укажите начало стены'}. Точки привязываются к сетке 0,5 м, Escape — отмена.`
+          : tool === 'wall' ? `${wallStarted ? 'Укажите конечную точку' : 'Укажите начало стены'}. Сетка 0,5 м и магнит к концам стен${wallSnapActive ? ' · соединение найдено' : ''}, Escape — отмена.`
             : 'Выберите фигуру, затем нажмите на сетку. Размеры и высоту можно изменить справа.'}</p>
       </section>
 

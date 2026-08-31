@@ -127,6 +127,7 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .room-measure-label b { max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-size: 9px; }
 .room-measure-label span { color: var(--acid); font-family: "DM Mono", ui-monospace, monospace; font-size: 8px; }
 .wall-measure-label { padding: 3px 5px; background: rgba(247,245,239,.92); color: #343a35; border: 1px solid rgba(102,110,102,.4); border-radius: 5px; font-family: "DM Mono", ui-monospace, monospace; font-size: 7px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 8px rgba(44,50,44,.1); }
+.wall-snap-label { padding: 4px 7px; background: rgba(32,37,34,.95); color: var(--acid); border: 1px solid rgba(232,255,87,.8); border-radius: 999px; font: 700 7px "DM Mono", ui-monospace, monospace; letter-spacing: .04em; white-space: nowrap; box-shadow: 0 3px 12px rgba(24,29,25,.24); }
 .snap-guide-label { padding: 4px 6px; background: rgba(32,37,34,.94); color: var(--acid); border: 1px solid rgba(232,255,87,.7); border-radius: 5px; font: 700 7px "DM Mono", ui-monospace, monospace; white-space: nowrap; box-shadow: 0 3px 10px rgba(24,29,25,.22); }
 
 .inspector { border-left: 1px solid var(--line); padding-bottom: 30px; }

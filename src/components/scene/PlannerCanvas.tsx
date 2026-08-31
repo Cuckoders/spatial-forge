@@ -75,6 +75,7 @@ function DraftPolygon() {
 function DraftWall() {
   const start = useEditorStore((state) => state.draftWallStart);
   const end = useEditorStore((state) => state.draftWallEnd);
+  const snap = useEditorStore((state) => state.draftWallSnap);
   const elevation = useEditorStore((state) => state.floors.find((floor) => floor.id === state.activeFloorId)?.elevation ?? 0);
   if (!start || !end) return null;
   const dx = end[0] - start[0]; const dz = end[1] - start[1];
@@ -90,8 +91,14 @@ function DraftWall() {
       <Html center position={[0, 3.05, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[35, 0]}><div className="wall-measure-label">{length.toFixed(2)} м</div></Html>
     </group>
     {[start, end].map((point, index) => <mesh key={index} position={[point[0], elevation + 0.24, point[1]]} raycast={() => undefined}>
-      <sphereGeometry args={[0.12, 14, 10]} /><meshBasicMaterial color={index === 0 ? '#202522' : '#D7EF35'} depthTest={false} />
+      <sphereGeometry args={[index === 1 && snap ? 0.16 : 0.12, 14, 10]} /><meshBasicMaterial color={index === 0 ? '#202522' : snap ? '#FFFFFF' : '#D7EF35'} depthTest={false} />
     </mesh>)}
+    {snap ? <group position={[snap.x, elevation + 0.26, snap.z]}>
+      <mesh rotation={[Math.PI / 2, 0, 0]} raycast={() => undefined}>
+        <torusGeometry args={[0.27, 0.035, 10, 32]} /><meshBasicMaterial color="#D7EF35" depthTest={false} />
+      </mesh>
+      <Html center position={[0, 0.48, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[45, 0]}><div className="wall-snap-label">Соединение</div></Html>
+    </group> : null}
   </group>;
 }
 
