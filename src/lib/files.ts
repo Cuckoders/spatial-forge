@@ -1,6 +1,7 @@
 import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geometry';
 import { createDefaultRoofSettings, createDefaultSlabSettings } from './floorStructures';
 import { MAX_OPENINGS_PER_WALL, openingsOverlap, type OpeningLike } from './openings';
+import { UTILITY_DEVICE_KINDS } from './utilities';
 import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
@@ -116,11 +117,12 @@ function readUtilityDevice(value: unknown, floorIds: Set<string>): PlanUtilityDe
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)
     || !['outlet', 'switch', 'panel', 'waterPoint', 'drain', 'radiator'].includes(String(value.kind))
     || !finite(value.x, -200, 200) || !finite(value.z, -200, 200) || !finite(value.elevation, 0.01, 12)
-    || !finite(value.rotation, -Math.PI * 20, Math.PI * 20) || !finite(value.rating, 0.1, 1_000)) return undefined;
+    || !finite(value.rotation, -Math.PI * 20, Math.PI * 20) || !finite(value.rating, 0.1, 1_000)
+    || (value.routeId !== undefined && (typeof value.routeId !== 'string' || !idPattern.test(value.routeId)))) return undefined;
   const name = text(value.name, 80);
   if (!name) return undefined;
   return { id: value.id, floorId: value.floorId, name, kind: value.kind as PlanUtilityDevice['kind'], x: value.x, z: value.z,
-    elevation: value.elevation, rotation: value.rotation, rating: value.rating };
+    elevation: value.elevation, rotation: value.rotation, rating: value.rating, ...(typeof value.routeId === 'string' ? { routeId: value.routeId } : {}) };
 }
 
 function readOpening(value: unknown, roomsById: Map<string, PlanRoom>): WallOpening | undefined {
@@ -241,6 +243,14 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (utilityDevices.some((device) => !device)) throw new Error('В файле есть некорректная инженерная точка.');
   const validUtilityDevices = utilityDevices as PlanUtilityDevice[];
   if (new Set(validUtilityDevices.map((device) => device.id)).size !== validUtilityDevices.length) throw new Error('Идентификаторы инженерных точек повторяются.');
+  const utilitiesById = new Map(validUtilities.map((route) => [route.id, route]));
+  for (const device of validUtilityDevices) {
+    if (!device.routeId) continue;
+    const route = utilitiesById.get(device.routeId);
+    if (!route || route.floorId !== device.floorId || route.kind !== UTILITY_DEVICE_KINDS[device.kind].utilityKind) {
+      throw new Error('Инженерная точка привязана к несовместимой трассе.');
+    }
+  }
   return { version: 1, name, projectType: value.projectType as ProjectType,
     site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms, walls: validWalls, wallOpenings: validWallOpenings,
     wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[], utilities: validUtilities, utilityDevices: validUtilityDevices };

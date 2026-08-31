@@ -222,6 +222,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const completePolygon = useEditorStore((state) => state.completePolygon);
   const activeFloorElevation = floors.find((floor) => floor.id === activeFloorId)?.elevation ?? 0;
   const wallJoins = useMemo(() => wallJoinOffsetsMap(walls), [walls]);
+  const utilitiesById = useMemo(() => new Map(utilities.map((route) => [route.id, route])), [utilities]);
 
   useEffect(() => {
     const updateSelectionBox = (event: PointerEvent) => {
@@ -324,7 +325,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
           joins={wallJoins.get(wall.id)!} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
         {utilities.filter((route) => route.floorId === floor.id && utilityVisibility[route.kind]).map((route) => <UtilityRouteMesh active={active} floorElevation={floor.elevation} key={route.id} route={route} />)}
-        {utilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} />)}
+        {utilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} route={device.routeId ? utilitiesById.get(device.routeId) : undefined} />)}
       </group>;
     })}
     <DraftPolygon />

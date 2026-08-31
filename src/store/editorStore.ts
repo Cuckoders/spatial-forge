@@ -8,7 +8,7 @@ import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVert
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
 import { createProjectFromTemplate } from '../lib/projectTemplates';
-import { UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
+import { nearestUtilityRoute, UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../lib/utilities';
 import { pointsMatch, snapWallPoint } from '../lib/wallSnapping';
 import type { BuiltInModelKind, CameraPreset, EditorTool, ModelAsset, ModelInstance, ObjectSelection, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, Selection, SiteSettings, SnapGuide, StandaloneWallOpening, TextureAsset, TransformMode, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening, WallSnapTarget } from '../types';
 
@@ -80,6 +80,8 @@ interface EditorState {
   setUtilityDeviceKind: (kind: UtilityDeviceKind) => void;
   addUtilityDeviceAt: (x: number, z: number) => void;
   updateUtilityDevice: (id: string, patch: Partial<PlanUtilityDevice>) => void;
+  connectUtilityDevice: (id: string, routeId?: string) => void;
+  autoConnectUtilityDevice: (id: string) => void;
   duplicateUtilityDevice: (id: string) => void;
   removeUtilityDevice: (id: string) => void;
   completePolygon: () => void;
@@ -493,7 +495,9 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const kind = patch.kind && ['electric', 'water', 'heating'].includes(patch.kind) ? patch.kind : source.kind;
     const route = normalizedUtility({ ...source, ...patch, id: source.id, floorId: source.floorId, kind });
     if (Math.hypot(route.endX - route.startX, route.endZ - route.startZ) < 0.1) return { message: 'Длина трассы должна быть не меньше 0,1 м' };
-    return { utilities: state.utilities.map((item) => item.id === id ? route : item),
+    const utilityDevices = state.utilityDevices.map((device) => device.routeId === id && UTILITY_DEVICE_KINDS[device.kind].utilityKind !== kind
+      ? { ...device, routeId: undefined } : device);
+    return { utilities: state.utilities.map((item) => item.id === id ? route : item), utilityDevices,
       utilityVisibility: { ...state.utilityVisibility, [kind]: true } };
   }),
   duplicateUtility: (id) => set((state) => {
@@ -503,25 +507,48 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     return { utilities: [...state.utilities, copy], selection: { kind: 'utility', id: copy.id }, message: 'Трасса скопирована' };
   }),
   removeUtility: (id) => set((state) => ({ utilities: state.utilities.filter((route) => route.id !== id),
+    utilityDevices: state.utilityDevices.map((device) => device.routeId === id ? { ...device, routeId: undefined } : device),
     selection: state.selection?.kind === 'utility' && state.selection.id === id ? null : state.selection, message: 'Трасса удалена' })),
   setUtilityDeviceKind: (utilityDeviceKind) => set({ utilityDeviceKind }),
   addUtilityDeviceAt: (x, z) => set((state) => {
     if (state.tool !== 'utility-device') return state;
     const defaults = UTILITY_DEVICE_KINDS[state.utilityDeviceKind];
     const count = state.utilityDevices.filter((device) => device.floorId === state.activeFloorId && device.kind === state.utilityDeviceKind).length + 1;
+    const pointX = snapToGrid(x); const pointZ = snapToGrid(z);
+    const route = nearestUtilityRoute(state.utilities, state.utilityDeviceKind, state.activeFloorId, pointX, pointZ);
     const device = normalizedUtilityDevice({ id: newId('utility-device'), floorId: state.activeFloorId,
-      name: `${defaults.label} ${count}`, kind: state.utilityDeviceKind, x: snapToGrid(x), z: snapToGrid(z),
-      elevation: defaults.defaultElevation, rotation: 0, rating: defaults.defaultRating });
+      name: `${defaults.label} ${count}`, kind: state.utilityDeviceKind, x: pointX, z: pointZ,
+      elevation: defaults.defaultElevation, rotation: 0, rating: defaults.defaultRating, ...(route ? { routeId: route.id } : {}) });
     return { utilityDevices: [...state.utilityDevices, device], utilityVisibility: { ...state.utilityVisibility, [defaults.utilityKind]: true },
-      selection: null, message: `«${device.name}» размещена · можно добавить ещё` };
+      selection: null, message: route ? `«${device.name}» подключена к «${route.name}» · можно добавить ещё` : `«${device.name}» размещена без подключения · рядом нет совместимой трассы` };
   }),
   updateUtilityDevice: (id, patch) => set((state) => {
     const source = state.utilityDevices.find((device) => device.id === id); if (!source) return state;
     const kind = patch.kind && Object.hasOwn(UTILITY_DEVICE_KINDS, patch.kind) ? patch.kind : source.kind;
-    const device = normalizedUtilityDevice({ ...source, ...patch, id: source.id, floorId: source.floorId, kind });
+    let routeId = source.routeId;
+    const linkedRoute = routeId ? state.utilities.find((route) => route.id === routeId) : undefined;
+    if (routeId && linkedRoute?.kind !== UTILITY_DEVICE_KINDS[kind].utilityKind) routeId = undefined;
+    if (!routeId && (kind !== source.kind || patch.x !== undefined || patch.z !== undefined)) {
+      routeId = nearestUtilityRoute(state.utilities, kind, source.floorId, patch.x ?? source.x, patch.z ?? source.z)?.id;
+    }
+    const device = normalizedUtilityDevice({ ...source, ...patch, id: source.id, floorId: source.floorId, kind, routeId });
     const utilityKind = UTILITY_DEVICE_KINDS[kind].utilityKind;
     return { utilityDevices: state.utilityDevices.map((item) => item.id === id ? device : item),
       utilityVisibility: { ...state.utilityVisibility, [utilityKind]: true } };
+  }),
+  connectUtilityDevice: (id, routeId) => set((state) => {
+    const device = state.utilityDevices.find((item) => item.id === id); if (!device) return state;
+    const route = routeId ? state.utilities.find((item) => item.id === routeId) : undefined;
+    if (routeId && (!route || route.floorId !== device.floorId || route.kind !== UTILITY_DEVICE_KINDS[device.kind].utilityKind)) return { message: 'Эта трасса несовместима с инженерной точкой' };
+    return { utilityDevices: state.utilityDevices.map((item) => item.id === id ? { ...item, routeId } : item),
+      message: route ? `Подключено к «${route.name}»` : 'Подключение снято' };
+  }),
+  autoConnectUtilityDevice: (id) => set((state) => {
+    const device = state.utilityDevices.find((item) => item.id === id); if (!device) return state;
+    const route = nearestUtilityRoute(state.utilities, device.kind, device.floorId, device.x, device.z, 200);
+    if (!route) return { message: 'На этаже нет совместимой трассы' };
+    return { utilityDevices: state.utilityDevices.map((item) => item.id === id ? { ...item, routeId: route.id } : item),
+      utilityVisibility: { ...state.utilityVisibility, [route.kind]: true }, message: `Подключено к ближайшей трассе «${route.name}»` };
   }),
   duplicateUtilityDevice: (id) => set((state) => {
     const source = state.utilityDevices.find((device) => device.id === id); if (!source) return state;
@@ -834,10 +861,12 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
     const wallOpenings = state.wallOpenings.flatMap((opening) => {
       const wallId = wallIds.get(opening.wallId); return wallId ? [{ ...opening, id: newId('wall-opening'), wallId }] : [];
     });
-    const utilities = state.utilities.filter((route) => route.floorId === sourceFloor.id)
-      .map((route) => ({ ...route, id: newId('utility'), floorId: floor.id }));
+    const sourceUtilities = state.utilities.filter((route) => route.floorId === sourceFloor.id);
+    const utilityIds = new Map(sourceUtilities.map((route) => [route.id, newId('utility')]));
+    const utilities = sourceUtilities.map((route) => ({ ...route, id: utilityIds.get(route.id)!, floorId: floor.id }));
     const utilityDevices = state.utilityDevices.filter((device) => device.floorId === sourceFloor.id)
-      .map((device) => ({ ...device, id: newId('utility-device'), floorId: floor.id }));
+      .map((device) => ({ ...device, id: newId('utility-device'), floorId: floor.id,
+        ...(device.routeId && utilityIds.has(device.routeId) ? { routeId: utilityIds.get(device.routeId) } : { routeId: undefined }) }));
     return { floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], openings: [...state.openings, ...openings],
       walls: [...state.walls, ...walls], wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes,
       modelInstances: [...state.modelInstances, ...models], utilities: [...state.utilities, ...utilities], utilityDevices: [...state.utilityDevices, ...utilityDevices], activeFloorId: floor.id, selection: null,
@@ -908,8 +937,10 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
       }
     }
     const modelInstances = clipboard.project.modelInstances.map((model) => ({ ...model, id: newId('object'), floorId: floor.id }));
-    const utilities = clipboard.project.utilities.map((route) => ({ ...route, id: newId('utility'), floorId: floor.id }));
-    const utilityDevices = clipboard.project.utilityDevices.map((device) => ({ ...device, id: newId('utility-device'), floorId: floor.id }));
+    const utilityIds = new Map(clipboard.project.utilities.map((route) => [route.id, newId('utility')]));
+    const utilities = clipboard.project.utilities.map((route) => ({ ...route, id: utilityIds.get(route.id)!, floorId: floor.id }));
+    const utilityDevices = clipboard.project.utilityDevices.map((device) => ({ ...device, id: newId('utility-device'), floorId: floor.id,
+      ...(device.routeId && utilityIds.has(device.routeId) ? { routeId: utilityIds.get(device.routeId) } : { routeId: undefined }) }));
     set({ floors: [...state.floors, floor], rooms: [...state.rooms, ...rooms], walls: [...state.walls, ...walls],
       wallOpenings: [...state.wallOpenings, ...wallOpenings], wallFinishes, openings: [...state.openings, ...openings],
       modelInstances: [...state.modelInstances, ...modelInstances], utilities: [...state.utilities, ...utilities], utilityDevices: [...state.utilityDevices, ...utilityDevices], activeFloorId: floor.id, showAllFloors: false, selection: null,

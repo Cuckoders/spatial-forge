@@ -82,6 +82,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .utility-device-grid button b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 7px; }
 .utility-device-grid button small { position: absolute; top: 3px; right: 4px; color: var(--muted); font: 700 6px "DM Mono", monospace; }
 .utility-device-grid button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.connection-audit { min-height: 36px; display: grid; grid-template-columns: 24px minmax(0,1fr); align-items: center; gap: 7px; margin-top: 5px; padding: 5px 7px; border: 1px solid #e7b4a8; border-radius: 7px; background: #fff2ed; }
+.connection-audit > span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: #d8583f; color: white; font: 800 8px "DM Mono", monospace; }
+.connection-audit div { display: grid; gap: 1px; }
+.connection-audit b { font-size: 7px; }
+.connection-audit small { color: #986153; font-size: 6px; }
+.connection-audit.ready { border-color: #cbd7a3; background: #f5f8e9; }
+.connection-audit.ready > span { background: #738231; }
+.connection-audit.ready small { color: #687047; }
 .asset-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .asset-grid button { height: 70px; border: 1px solid var(--line); background: #fff; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 10px; font-weight: 700; cursor: pointer; }
 .asset-grid button:hover, .upload-button:hover { border-color: #a6ad93; background: #f5f7e9; }
@@ -264,6 +272,18 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .utility-device-type-grid button { min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 7px; font-weight: 700; cursor: pointer; }
 .utility-device-type-grid button > span { width: 7px; height: 7px; flex: none; border-radius: 50%; }
 .utility-device-type-grid button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.connection-field { display: grid; gap: 5px; }
+.connection-field > span { color: var(--muted); font-size: 7px; font-weight: 700; }
+.connection-field select { width: 100%; height: 35px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); font-size: 8px; font-weight: 700; }
+.connection-status { min-height: 42px; display: grid; grid-template-columns: 9px minmax(0,1fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid #e4b9ad; border-radius: 7px; background: #fff4ef; }
+.connection-status > span { width: 9px; height: 9px; border-radius: 50%; background: #d8583f; }
+.connection-status > div { display: grid; gap: 2px; }
+.connection-status b { font-size: 8px; }
+.connection-status small { overflow: hidden; color: var(--muted); font-size: 7px; line-height: 1.35; text-overflow: ellipsis; }
+.connection-status.connected { border-color: #cbd7a3; background: #f6f8ee; }
+.connection-status.connected > span { background: #7b8a35; }
+.connection-auto { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--ink); border-radius: 7px; background: var(--ink); color: white; font-size: 8px; font-weight: 700; cursor: pointer; }
+.connection-auto:disabled { border-color: var(--line); background: #e7e8e2; color: #9da19b; cursor: default; }
 .utility-summary { min-height: 38px; display: grid; grid-template-columns: 9px minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: white; }
 .utility-summary > span { width: 9px; height: 9px; border-radius: 50%; }
 .utility-summary b { font-size: 8px; }

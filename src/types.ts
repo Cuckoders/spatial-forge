@@ -155,6 +155,7 @@ export interface PlanUtilityDevice {
   elevation: number;
   rotation: number;
   rating: number;
+  routeId?: string | undefined;
 }
 
 export type ObjectSelection =

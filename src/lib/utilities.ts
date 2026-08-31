@@ -17,3 +17,22 @@ export const UTILITY_DEVICE_KINDS: Record<UtilityDeviceKind, { label: string; sh
 
 export const utilityLength = (route: Pick<PlanUtilityRoute, 'startX' | 'startZ' | 'endX' | 'endZ'>) =>
   Math.hypot(route.endX - route.startX, route.endZ - route.startZ);
+
+export function utilityRouteProjection(route: Pick<PlanUtilityRoute, 'startX' | 'startZ' | 'endX' | 'endZ'>, x: number, z: number) {
+  const dx = route.endX - route.startX; const dz = route.endZ - route.startZ;
+  const lengthSquared = dx * dx + dz * dz;
+  const t = lengthSquared > 0 ? Math.max(0, Math.min(1, ((x - route.startX) * dx + (z - route.startZ) * dz) / lengthSquared)) : 0;
+  const pointX = route.startX + dx * t; const pointZ = route.startZ + dz * t;
+  return { x: pointX, z: pointZ, distance: Math.hypot(x - pointX, z - pointZ) };
+}
+
+export function nearestUtilityRoute(routes: PlanUtilityRoute[], deviceKind: UtilityDeviceKind, floorId: string, x: number, z: number, maximumDistance = 1.5) {
+  const utilityKind = UTILITY_DEVICE_KINDS[deviceKind].utilityKind;
+  let nearest: PlanUtilityRoute | undefined; let nearestDistance = maximumDistance;
+  for (const route of routes) {
+    if (route.floorId !== floorId || route.kind !== utilityKind) continue;
+    const distance = utilityRouteProjection(route, x, z).distance;
+    if (distance <= nearestDistance) { nearest = route; nearestDistance = distance; }
+  }
+  return nearest;
+}

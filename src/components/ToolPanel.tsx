@@ -64,6 +64,8 @@ export function ToolPanel() {
   const addBuiltInModel = useEditorStore((state) => state.addBuiltInModel);
   const addCustomModel = useEditorStore((state) => state.addCustomModel);
   const notify = useEditorStore((state) => state.notify);
+  const activeUtilityDevices = utilityDevices.filter((device) => device.floorId === activeFloorId);
+  const unconnectedDeviceCount = activeUtilityDevices.filter((device) => !device.routeId).length;
 
   const uploadTexture = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = '';
@@ -112,8 +114,9 @@ export function ToolPanel() {
             <button aria-label={`${visible ? 'Скрыть' : 'Показать'}: ${item.label}`} aria-pressed={visible} className={`utility-visibility${visible ? ' visible' : ''}`} onClick={() => toggleUtilityVisibility(item.id)} title={`${visible ? 'Скрыть' : 'Показать'} трассы`} type="button">{visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
           </div>; })}
         </div>
-        <div className="utility-device-heading"><b>Точки подключения</b><span>{utilityDevices.filter((device) => device.floorId === activeFloorId).length}</span></div>
+        <div className="utility-device-heading"><b>Точки подключения</b><span>{activeUtilityDevices.length}</span></div>
         <div className="utility-device-grid">{utilityDeviceKinds.map((item) => { const Icon = item.icon; const style = UTILITY_DEVICE_KINDS[item.id]; const count = utilityDevices.filter((device) => device.floorId === activeFloorId && device.kind === item.id).length; return <button aria-pressed={tool === 'utility-device' && utilityDeviceKind === item.id} className={tool === 'utility-device' && utilityDeviceKind === item.id ? 'active' : ''} key={item.id} onClick={() => { setUtilityDeviceKind(item.id); setTool('utility-device'); }} type="button"><span style={{ color: style.color }}><Icon size={15} /></span><b>{style.shortLabel}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
+        {unconnectedDeviceCount ? <div className="connection-audit"><span>{unconnectedDeviceCount}</span><div><b>Без подключения</b><small>Отмечены красным в сцене</small></div></div> : activeUtilityDevices.length ? <div className="connection-audit ready"><span>✓</span><div><b>Все точки подключены</b><small>Связи с трассами корректны</small></div></div> : null}
         <p className="panel-note">{tool === 'utility' ? `${utilitySegmentCount ? `Продолжайте трассу · сегментов ${utilitySegmentCount}` : 'Укажите начальную точку'}. ЛКМ — следующая точка, Enter или Escape — завершить.` : tool === 'utility-device' ? `Размещайте «${UTILITY_DEVICE_KINDS[utilityDeviceKind].label}» по сетке. После установки параметры доступны справа.` : 'Выберите трассу или точку подключения и разместите её на активном этаже.'}</p>
       </section>
 
