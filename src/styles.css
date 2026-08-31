@@ -241,6 +241,29 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .floor-name-field input { height: 36px; width: 100%; border: 1px solid var(--line); background: white; border-radius: 7px; padding: 0 9px; font-size: 10px; font-weight: 700; }
 .duplicate-floor { width: 100%; min-height: 36px; border: 1px solid #cfd2c6; background: #f4f6e8; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 9px; font-weight: 700; cursor: pointer; }
 .duplicate-floor:hover { background: var(--acid); border-color: var(--acid-dark); }
+.floor-structures-editor { display: grid; gap: 8px; }
+.floor-structures-editor .inspector-title { margin-bottom: 3px; }
+.structure-card { padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: #f8f8f4; }
+.structure-card.enabled { border-color: #cdd39f; background: #f5f7e7; }
+.structure-card-head { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+.structure-card-head > div { min-width: 0; display: grid; gap: 2px; }
+.structure-card-head b { font-size: 9px; }
+.structure-card-head small { color: var(--muted); font-size: 7px; }
+.structure-card-head > button { width: 33px; height: 19px; position: relative; flex: none; padding: 0; border: 0; border-radius: 999px; background: #c8cbc3; cursor: pointer; }
+.structure-card-head > button span { width: 15px; height: 15px; position: absolute; left: 2px; top: 2px; border-radius: 50%; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.18); transition: transform .16s; }
+.structure-card-head > button[aria-pressed="true"] { background: var(--ink); }
+.structure-card-head > button[aria-pressed="true"] span { transform: translateX(14px); background: var(--acid); }
+.structure-card > .field, .structure-card > .field-row, .structure-card > .color-field, .structure-card > .roof-type-tabs { margin-top: 9px; }
+.structure-card > .field { margin-bottom: 0; }
+.structure-card > .field-row { margin-bottom: 0; }
+.roof-type-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 8px; background: #e4e6dc; }
+.roof-type-tabs button { min-height: 29px; border: 0; border-radius: 6px; background: transparent; font-size: 8px; font-weight: 700; cursor: pointer; }
+.roof-type-tabs button.active { background: white; box-shadow: 0 1px 5px rgba(32,37,34,.12); }
+.ridge-direction { display: grid; grid-template-columns: 1fr 47px 47px; gap: 4px; align-items: center; margin-top: 9px; }
+.ridge-direction span { color: var(--muted); font-size: 8px; }
+.ridge-direction button { min-height: 28px; border: 1px solid var(--line); border-radius: 6px; background: white; font-size: 8px; font-weight: 700; cursor: pointer; }
+.ridge-direction button.active { border-color: var(--ink); background: var(--ink); color: var(--acid); }
+.structure-note { margin: 8px 1px 0; color: var(--muted); font-size: 7px; line-height: 1.45; }
 .project-clipboard > p { margin: -2px 0 10px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .clipboard-copy-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .clipboard-copy-actions button, .clipboard-paste { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 8px; font-weight: 700; cursor: pointer; }

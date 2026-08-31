@@ -1,4 +1,5 @@
 import { wallId } from './geometry';
+import { createPlanFloor } from './floorStructures';
 import type { ProjectDocument, ProjectType } from '../types';
 
 export interface ProjectTemplateInfo {
@@ -12,7 +13,8 @@ export interface ProjectTemplateInfo {
 
 const familyHouse: ProjectDocument = {
   version: 1, name: 'Дом у сада', projectType: 'apartment', site: { width: 20, depth: 16 },
-  floors: [{ id: 'floor-1', name: '1 этаж', elevation: 0 }, { id: 'floor-2', name: '2 этаж', elevation: 3.2 }],
+  floors: [createPlanFloor('floor-1', '1 этаж', 0), { ...createPlanFloor('floor-2', '2 этаж', 3.2),
+    roof: { enabled: true, type: 'gable', height: 1.8, overhang: 0.45, color: '#76594B', ridgeDirection: 'x' } }],
   rooms: [
     { id: 'living', floorId: 'floor-1', name: 'Гостиная', shape: 'rectangle', x: -2.5, z: -1.5, width: 5, depth: 4, rotation: 0, wallHeight: 2.8, wallThickness: 0.16, floorColor: '#CDBA9A' },
     { id: 'kitchen', floorId: 'floor-1', name: 'Кухня', shape: 'rectangle', x: 2.25, z: -1.5, width: 4.5, depth: 4, rotation: 0, wallHeight: 2.8, wallThickness: 0.16, floorColor: '#B9C8BE' },
@@ -37,7 +39,7 @@ const familyHouse: ProjectDocument = {
 
 const compactApartment: ProjectDocument = {
   version: 1, name: 'Компактная квартира', projectType: 'apartment', site: { width: 14, depth: 11 },
-  floors: [{ id: 'compact-floor', name: 'Квартира', elevation: 0 }],
+  floors: [createPlanFloor('compact-floor', 'Квартира', 0)],
   rooms: [
     { id: 'compact-living', floorId: 'compact-floor', name: 'Кухня-гостиная', shape: 'rectangle', x: -2.25, z: -1.5, width: 5.5, depth: 4, rotation: 0, wallHeight: 2.7, wallThickness: 0.14, floorColor: '#C9B89A' },
     { id: 'compact-bedroom', floorId: 'compact-floor', name: 'Спальня', shape: 'rectangle', x: 2.25, z: -1.5, width: 3.5, depth: 4, rotation: 0, wallHeight: 2.7, wallThickness: 0.14, floorColor: '#CFC9D8' },
@@ -60,7 +62,7 @@ const compactApartment: ProjectDocument = {
 
 const gardenPlot: ProjectDocument = {
   version: 1, name: 'Садовый участок', projectType: 'plot', site: { width: 30, depth: 24 },
-  floors: [{ id: 'plot-floor', name: 'Участок', elevation: 0 }],
+  floors: [createPlanFloor('plot-floor', 'Участок', 0)],
   rooms: [
     { id: 'plot-house', floorId: 'plot-floor', name: 'Дом', shape: 'rectangle', x: -4, z: -1.5, width: 8, depth: 7, rotation: 0, wallHeight: 3, wallThickness: 0.2, floorColor: '#C8B18D' },
     { id: 'plot-terrace', floorId: 'plot-floor', name: 'Терраса', shape: 'rectangle', x: 3, z: -1.5, width: 5.5, depth: 4, rotation: 0, wallHeight: 0.7, wallThickness: 0.12, floorColor: '#B9A17D' },
@@ -84,7 +86,7 @@ const gardenPlot: ProjectDocument = {
 
 const blankProject: ProjectDocument = {
   version: 1, name: 'Новый проект', projectType: 'apartment', site: { width: 20, depth: 16 },
-  floors: [{ id: 'blank-floor', name: '1 этаж', elevation: 0 }], rooms: [], walls: [], wallOpenings: [], wallFinishes: {}, openings: [], modelInstances: [],
+  floors: [createPlanFloor('blank-floor', '1 этаж', 0)], rooms: [], walls: [], wallOpenings: [], wallFinishes: {}, openings: [], modelInstances: [],
 };
 
 export const projectTemplates: ProjectTemplateInfo[] = [

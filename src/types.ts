@@ -4,6 +4,8 @@ export type RoomShape = 'rectangle' | 'triangle' | 'polygon';
 export type CameraPreset = 'perspective' | 'top' | 'front';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type BuiltInModelKind = 'sofa' | 'table' | 'bed' | 'tree' | 'stairs';
+export type RoofType = 'flat' | 'gable';
+export type RoofRidgeDirection = 'x' | 'z';
 
 export interface SnapGuide {
   axis: 'x' | 'z';
@@ -24,6 +26,23 @@ export interface PlanFloor {
   id: string;
   name: string;
   elevation: number;
+  slab: FloorSlabSettings;
+  roof: FloorRoofSettings;
+}
+
+export interface FloorSlabSettings {
+  enabled: boolean;
+  thickness: number;
+  color: string;
+}
+
+export interface FloorRoofSettings {
+  enabled: boolean;
+  type: RoofType;
+  height: number;
+  overhang: number;
+  color: string;
+  ridgeDirection: RoofRidgeDirection;
 }
 
 export interface PlanRoom {

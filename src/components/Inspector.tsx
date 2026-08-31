@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { BrickWall, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
+import { BrickWall, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, House, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
 import { useEditorStore } from '../store/editorStore';
-import type { ObjectSelection, Selection, StandaloneWallOpening, WallFinish, WallOpening } from '../types';
+import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, WallFinish, WallOpening } from '../types';
 
 const wallPalette = ['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'];
 
@@ -16,6 +16,28 @@ function pluralize(count: number, one: string, few: string, many: string) {
   return lastTwo >= 11 && lastTwo <= 14 ? many : last === 1 ? one : last >= 2 && last <= 4 ? few : many;
 }
 
+function FloorStructuresEditor({ floor }: { floor: PlanFloor }) {
+  const updateFloor = useEditorStore((state) => state.updateFloor);
+  const hasRooms = useEditorStore((state) => state.rooms.some((room) => room.floorId === floor.id));
+  return <section className="inspector-section floor-structures-editor">
+    <div className="inspector-title"><span>Перекрытие и крыша</span><House size={16} /></div>
+    <div className={`structure-card${floor.slab.enabled ? ' enabled' : ''}`}>
+      <div className="structure-card-head"><div><b>Плита перекрытия</b><small>Повторяет контуры комнат</small></div><button aria-label="Перекрытие" aria-pressed={floor.slab.enabled} onClick={() => updateFloor(floor.id, { slab: { enabled: !floor.slab.enabled } })} role="switch" type="button"><span /></button></div>
+      {floor.slab.enabled ? <><NumericField ariaLabel="Толщина перекрытия" label="Толщина" max={1} min={0.08} onChange={(thickness) => updateFloor(floor.id, { slab: { thickness } })} step={0.01} unit="м" value={floor.slab.thickness} /><label className="color-field"><input aria-label="Цвет перекрытия" onChange={(event) => updateFloor(floor.id, { slab: { color: event.target.value } })} type="color" value={floor.slab.color} /><span>{floor.slab.color.toUpperCase()}</span><b>Бетон</b></label></> : null}
+    </div>
+    <div className={`structure-card${floor.roof.enabled ? ' enabled' : ''}`}>
+      <div className="structure-card-head"><div><b>Крыша этажа</b><small>По общему габариту помещений</small></div><button aria-label="Крыша" aria-pressed={floor.roof.enabled} onClick={() => updateFloor(floor.id, { roof: { enabled: !floor.roof.enabled } })} role="switch" type="button"><span /></button></div>
+      {floor.roof.enabled ? <>
+        <div aria-label="Тип крыши" className="roof-type-tabs" role="group"><button aria-pressed={floor.roof.type === 'gable'} className={floor.roof.type === 'gable' ? 'active' : ''} onClick={() => updateFloor(floor.id, { roof: { type: 'gable' } })} type="button">Двускатная</button><button aria-pressed={floor.roof.type === 'flat'} className={floor.roof.type === 'flat' ? 'active' : ''} onClick={() => updateFloor(floor.id, { roof: { type: 'flat' } })} type="button">Плоская</button></div>
+        <div className="field-row">{floor.roof.type === 'gable' ? <NumericField ariaLabel="Высота крыши" label="Высота" max={8} min={0.2} onChange={(height) => updateFloor(floor.id, { roof: { height } })} unit="м" value={floor.roof.height} /> : <div />}<NumericField ariaLabel="Свес крыши" label="Свес" max={3} min={0} onChange={(overhang) => updateFloor(floor.id, { roof: { overhang } })} step={0.05} unit="м" value={floor.roof.overhang} /></div>
+        {floor.roof.type === 'gable' ? <div aria-label="Направление конька" className="ridge-direction" role="group"><span>Конёк</span><button aria-pressed={floor.roof.ridgeDirection === 'x'} className={floor.roof.ridgeDirection === 'x' ? 'active' : ''} onClick={() => updateFloor(floor.id, { roof: { ridgeDirection: 'x' } })} type="button">по X</button><button aria-pressed={floor.roof.ridgeDirection === 'z'} className={floor.roof.ridgeDirection === 'z' ? 'active' : ''} onClick={() => updateFloor(floor.id, { roof: { ridgeDirection: 'z' } })} type="button">по Z</button></div> : null}
+        <label className="color-field"><input aria-label="Цвет крыши" onChange={(event) => updateFloor(floor.id, { roof: { color: event.target.value } })} type="color" value={floor.roof.color} /><span>{floor.roof.color.toUpperCase()}</span><b>{floor.roof.type === 'gable' ? 'Скаты' : 'Покрытие'}</b></label>
+        {!hasRooms ? <p className="structure-note">Добавьте хотя бы одну комнату, чтобы построить крышу.</p> : <p className="structure-note">Основание автоматически размещается над самой высокой стеной этажа.</p>}
+      </> : null}
+    </div>
+  </section>;
+}
+
 function EmptyInspector() {
   const site = useEditorStore((state) => state.site);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
@@ -25,7 +47,7 @@ function EmptyInspector() {
   const duplicateActiveFloor = useEditorStore((state) => state.duplicateActiveFloor);
   return <>
     <div className="inspector-empty"><Move3D size={28} /><h2>Выберите элемент</h2><p>Нажмите на пол, стену или объект в сцене, чтобы открыть его параметры.</p></div>
-    {floor ? <section className="inspector-section"><div className="inspector-title"><span>Активный этаж</span><Layers3 size={16} /></div><label className="floor-name-field"><span>Название</span><input defaultValue={floor.name} key={`${floor.id}:${floor.name}`} maxLength={80} onBlur={(event) => updateFloor(floor.id, { name: event.target.value })} /></label><NumericField label="Отметка" max={60} min={-20} onChange={(elevation) => updateFloor(floor.id, { elevation })} unit="м" value={floor.elevation} /><button className="duplicate-floor" onClick={duplicateActiveFloor} type="button"><Copy size={15} /> Дублировать этаж со всем содержимым</button></section> : null}
+    {floor ? <><section className="inspector-section"><div className="inspector-title"><span>Активный этаж</span><Layers3 size={16} /></div><label className="floor-name-field"><span>Название</span><input defaultValue={floor.name} key={`${floor.id}:${floor.name}`} maxLength={80} onBlur={(event) => updateFloor(floor.id, { name: event.target.value })} /></label><NumericField label="Отметка" max={60} min={-20} onChange={(elevation) => updateFloor(floor.id, { elevation })} unit="м" value={floor.elevation} /><button className="duplicate-floor" onClick={duplicateActiveFloor} type="button"><Copy size={15} /> Дублировать этаж со всем содержимым</button></section><FloorStructuresEditor floor={floor} /></> : null}
     <section className="inspector-section"><div className="inspector-title"><span>Площадка</span><Ruler size={16} /></div><div className="field-row"><NumericField label="Ширина" max={200} min={4} onChange={(width) => updateSite({ width })} unit="м" value={site.width} /><NumericField label="Глубина" max={200} min={4} onChange={(depth) => updateSite({ depth })} unit="м" value={site.depth} /></div></section>
     <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Shift</kbd> группа · <kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>W/E/S</kbd> трансформация · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
   </>;

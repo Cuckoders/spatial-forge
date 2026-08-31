@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { shallow } from 'zustand/shallow';
 
 import { createProjectDocument, readAutosave, saveAutosave } from '../lib/files';
+import { createPlanFloor } from '../lib/floorStructures';
 import { isSimplePolygon, polygonArea, polygonBounds, normalizeDegrees, roomVertices, snapToGrid, wallId, type Point2 } from '../lib/geometry';
 import { findAvailableOpeningOffset, MAX_OPENINGS_PER_WALL, OPENING_EDGE_CLEARANCE, openingsOverlap, type OpeningLike } from '../lib/openings';
 import { readProjectClipboard, summarizeProjectClipboard, writeProjectClipboard, type ProjectClipboardSummary } from '../lib/projectClipboard';
@@ -82,7 +83,7 @@ interface EditorState {
   updateWallOpening: (id: string, patch: Partial<WallOpening>) => void;
   removeWallOpening: (id: string) => void;
   addFloor: () => void;
-  updateFloor: (id: string, patch: Partial<Pick<PlanFloor, 'name' | 'elevation'>>) => void;
+  updateFloor: (id: string, patch: { name?: string; elevation?: number; slab?: Partial<PlanFloor['slab']>; roof?: Partial<PlanFloor['roof']> }) => void;
   duplicateActiveFloor: () => void;
   copyActiveFloorToClipboard: () => void;
   pasteProjectClipboard: () => void;
@@ -672,17 +673,26 @@ export const useEditorStore = create<EditorState>()(subscribeWithSelector((set, 
   removeWallOpening: (id) => set((state) => ({ openings: state.openings.filter((opening) => opening.id !== id), message: 'Проём удалён' })),
   addFloor: () => set((state) => {
     if (state.floors.length >= 12) return { message: 'Можно создать не больше 12 этажей' };
-    const floor: PlanFloor = { id: newId('floor'), name: `${state.floors.length + 1} этаж`, elevation: Math.max(...state.floors.map((item) => item.elevation)) + 3.2 };
+    const floor = createPlanFloor(newId('floor'), `${state.floors.length + 1} этаж`, Math.max(...state.floors.map((item) => item.elevation)) + 3.2);
     return { floors: [...state.floors, floor], activeFloorId: floor.id, selection: null, showAllFloors: false, message: 'Новый этаж создан' };
   }),
   updateFloor: (id, patch) => set((state) => ({ floors: state.floors.map((floor) => floor.id === id ? {
     ...floor, name: patch.name === undefined ? floor.name : cleanText(patch.name, 80) || floor.name,
     elevation: patch.elevation === undefined ? floor.elevation : clamp(patch.elevation, -20, 60),
+    slab: patch.slab ? { ...floor.slab, ...patch.slab,
+      thickness: patch.slab.thickness === undefined ? floor.slab.thickness : clamp(patch.slab.thickness, 0.08, 1),
+      color: patch.slab.color === undefined || !/^#[0-9a-f]{6}$/i.test(patch.slab.color) ? floor.slab.color : patch.slab.color } : floor.slab,
+    roof: patch.roof ? { ...floor.roof, ...patch.roof,
+      height: patch.roof.height === undefined ? floor.roof.height : clamp(patch.roof.height, 0.2, 8),
+      overhang: patch.roof.overhang === undefined ? floor.roof.overhang : clamp(patch.roof.overhang, 0, 3),
+      color: patch.roof.color === undefined || !/^#[0-9a-f]{6}$/i.test(patch.roof.color) ? floor.roof.color : patch.roof.color } : floor.roof,
   } : floor) })),
   duplicateActiveFloor: () => set((state) => {
     if (state.floors.length >= 12) return { message: 'Можно создать не больше 12 этажей' };
     const sourceFloor = state.floors.find((floor) => floor.id === state.activeFloorId); if (!sourceFloor) return state;
-    const floor: PlanFloor = { id: newId('floor'), name: `${sourceFloor.name} — копия`.slice(0, 80), elevation: Math.min(60, Math.max(...state.floors.map((item) => item.elevation)) + 3.2) };
+    const floor: PlanFloor = { ...sourceFloor, id: newId('floor'), name: `${sourceFloor.name} — копия`.slice(0, 80),
+      elevation: Math.min(60, Math.max(...state.floors.map((item) => item.elevation)) + 3.2),
+      slab: { ...sourceFloor.slab }, roof: { ...sourceFloor.roof } };
     const sourceRooms = state.rooms.filter((room) => room.floorId === sourceFloor.id);
     const roomIds = new Map(sourceRooms.map((room) => [room.id, newId('block')]));
     const rooms = sourceRooms.map((room) => ({ ...room, id: roomIds.get(room.id) ?? newId('block'), floorId: floor.id }));

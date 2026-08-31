@@ -9,6 +9,7 @@ import { wallJoinOffsetsMap } from '../../lib/wallJoins';
 import { useEditorStore } from '../../store/editorStore';
 import type { ObjectSelection } from '../../types';
 import { ModelMesh } from './ModelMesh';
+import { FloorStructures } from './FloorStructures';
 import { RoomMesh } from './RoomMesh';
 import { SelectionTransform } from './SelectionTransform';
 import { StandaloneWallMesh } from './StandaloneWallMesh';
@@ -284,8 +285,10 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
     {floors.map((floor) => {
       const active = floor.id === activeFloorId;
       if (!active && !showAllFloors) return null;
+      const floorRooms = rooms.filter((room) => room.floorId === floor.id);
       return <group key={floor.id}>
-        {rooms.filter((room) => room.floorId === floor.id).map((room) => <RoomMesh key={room.id} active={active} elevation={floor.elevation} room={room} />)}
+        <FloorStructures active={active} floor={floor} rooms={floorRooms} />
+        {floorRooms.map((room) => <RoomMesh key={room.id} active={active} elevation={floor.elevation} room={room} />)}
         {walls.filter((wall) => wall.floorId === floor.id).map((wall) => <StandaloneWallMesh key={wall.id} active={active} elevation={floor.elevation}
           joins={wallJoins.get(wall.id)!} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}

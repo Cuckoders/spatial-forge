@@ -1,4 +1,5 @@
 import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geometry';
+import { createDefaultRoofSettings, createDefaultSlabSettings } from './floorStructures';
 import { MAX_OPENINGS_PER_WALL, openingsOverlap, type OpeningLike } from './openings';
 import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, WallFinish, WallOpening } from '../types';
 
@@ -28,7 +29,24 @@ function readFloor(value: unknown): PlanFloor | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id)) return undefined;
   const name = text(value.name, 80);
   if (!name || !finite(value.elevation, -20, 60)) return undefined;
-  return { id: value.id, name, elevation: value.elevation };
+  const slab = value.slab === undefined ? createDefaultSlabSettings() : readSlab(value.slab);
+  const roof = value.roof === undefined ? createDefaultRoofSettings() : readRoof(value.roof);
+  if (!slab || !roof) return undefined;
+  return { id: value.id, name, elevation: value.elevation, slab, roof };
+}
+
+function readSlab(value: unknown): PlanFloor['slab'] | undefined {
+  if (!isRecord(value) || typeof value.enabled !== 'boolean' || !finite(value.thickness, 0.08, 1)
+    || typeof value.color !== 'string' || !colorPattern.test(value.color)) return undefined;
+  return { enabled: value.enabled, thickness: value.thickness, color: value.color };
+}
+
+function readRoof(value: unknown): PlanFloor['roof'] | undefined {
+  if (!isRecord(value) || typeof value.enabled !== 'boolean' || !['flat', 'gable'].includes(String(value.type))
+    || !finite(value.height, 0.2, 8) || !finite(value.overhang, 0, 3)
+    || typeof value.color !== 'string' || !colorPattern.test(value.color) || !['x', 'z'].includes(String(value.ridgeDirection))) return undefined;
+  return { enabled: value.enabled, type: value.type as PlanFloor['roof']['type'], height: value.height, overhang: value.overhang,
+    color: value.color, ridgeDirection: value.ridgeDirection as PlanFloor['roof']['ridgeDirection'] };
 }
 
 function readRoom(value: unknown, floorIds: Set<string>): PlanRoom | undefined {
