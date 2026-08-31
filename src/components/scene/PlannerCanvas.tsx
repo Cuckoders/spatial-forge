@@ -5,7 +5,7 @@ import { MOUSE, TOUCH, Vector3, type Camera } from 'three';
 
 import { downloadBlob, safeDownloadName } from '../../lib/files';
 import { boundsForModel, boundsForRoom, type Bounds2D } from '../../lib/snapping';
-import { UTILITY_KINDS } from '../../lib/utilities';
+import { UTILITY_DEVICE_KINDS, UTILITY_KINDS } from '../../lib/utilities';
 import { wallJoinOffsetsMap } from '../../lib/wallJoins';
 import { useEditorStore } from '../../store/editorStore';
 import type { ObjectSelection } from '../../types';
@@ -15,6 +15,7 @@ import { RoomMesh } from './RoomMesh';
 import { SelectionTransform } from './SelectionTransform';
 import { StandaloneWallMesh } from './StandaloneWallMesh';
 import { UtilityRouteMesh } from './UtilityRouteMesh';
+import { UtilityDeviceMesh } from './UtilityDeviceMesh';
 
 function CameraController() {
   const camera = useThree((state) => state.camera);
@@ -203,6 +204,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const walls = useEditorStore((state) => state.walls);
   const models = useEditorStore((state) => state.modelInstances);
   const utilities = useEditorStore((state) => state.utilities);
+  const utilityDevices = useEditorStore((state) => state.utilityDevices);
   const utilityVisibility = useEditorStore((state) => state.utilityVisibility);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const showAllFloors = useEditorStore((state) => state.showAllFloors);
@@ -215,6 +217,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
   const addWallPoint = useEditorStore((state) => state.addWallPoint);
   const previewWall = useEditorStore((state) => state.previewWall);
   const addUtilityPoint = useEditorStore((state) => state.addUtilityPoint);
+  const addUtilityDeviceAt = useEditorStore((state) => state.addUtilityDeviceAt);
   const previewUtility = useEditorStore((state) => state.previewUtility);
   const completePolygon = useEditorStore((state) => state.completePolygon);
   const activeFloorElevation = floors.find((floor) => floor.id === activeFloorId)?.elevation ?? 0;
@@ -282,6 +285,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
     else if (tool === 'polygon') { event.stopPropagation(); addPolygonPoint(event.point.x, event.point.z); }
     else if (tool === 'wall') { event.stopPropagation(); addWallPoint(event.point.x, event.point.z); }
     else if (tool === 'utility') { event.stopPropagation(); addUtilityPoint(event.point.x, event.point.z); }
+    else if (tool === 'utility-device') { event.stopPropagation(); addUtilityDeviceAt(event.point.x, event.point.z); }
     else if (!event.shiftKey) select(null);
   };
   const onGroundPointerMove = (event: ThreeEvent<PointerEvent>) => {
@@ -320,6 +324,7 @@ function SceneContents({ selectionBoxRef }: { selectionBoxRef: RefObject<HTMLDiv
           joins={wallJoins.get(wall.id)!} wall={wall} />)}
         {models.filter((model) => model.floorId === floor.id).map((model) => <ModelMesh key={model.id} active={active} elevation={floor.elevation} model={model} />)}
         {utilities.filter((route) => route.floorId === floor.id && utilityVisibility[route.kind]).map((route) => <UtilityRouteMesh active={active} floorElevation={floor.elevation} key={route.id} route={route} />)}
+        {utilityDevices.filter((device) => device.floorId === floor.id && utilityVisibility[UTILITY_DEVICE_KINDS[device.kind].utilityKind]).map((device) => <UtilityDeviceMesh active={active} device={device} floorElevation={floor.elevation} key={device.id} />)}
       </group>;
     })}
     <DraftPolygon />
@@ -345,6 +350,7 @@ export function PlannerCanvas() {
     <WallPrecisionPanel />
     <div className="canvas-hint">{tool === 'wall' ? <><kbd>ЛКМ</kbd> следующая точка · в полях <kbd>Enter</kbd> добавить · <kbd>Esc</kbd> завершить</>
       : tool === 'utility' ? <><kbd>ЛКМ</kbd> следующая точка трассы · <kbd>Enter / Esc</kbd> завершить</>
+      : tool === 'utility-device' ? <><kbd>ЛКМ</kbd> разместить инженерную точку · <kbd>Esc</kbd> выбор</>
       : cameraPreset === 'top' ? <><kbd>ЛКМ</kbd> рамка · <kbd>Shift</kbd> добавить · <kbd>W/E/S</kbd> манипулятор</>
         : <><kbd>ЛКМ</kbd> камера · <kbd>W/E/S</kbd> перемещение / вращение / масштаб · <kbd>колесо</kbd> зум</>}</div>
   </div>;

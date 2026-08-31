@@ -49,12 +49,14 @@ function SceneStats() {
   const walls = useEditorStore((state) => state.walls);
   const modelCount = useEditorStore((state) => state.modelInstances.length);
   const utilities = useEditorStore((state) => state.utilities);
+  const utilityDevices = useEditorStore((state) => state.utilityDevices);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const floorRooms = rooms.filter((room) => room.floorId === activeFloorId);
   const area = floorRooms.reduce((total, room) => total + roomArea(room), 0);
   const wallCount = walls.filter((wall) => wall.floorId === activeFloorId).length;
   const utilityCount = utilities.filter((route) => route.floorId === activeFloorId).length;
-  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> {pluralizeStat(floorRooms.length, 'блок', 'блока', 'блоков')}</span><span><b>{wallCount}</b> {pluralizeStat(wallCount, 'стена', 'стены', 'стен')}</span><span><b>{utilityCount}</b> {pluralizeStat(utilityCount, 'трасса', 'трассы', 'трасс')}</span><span><b>{modelCount}</b> {pluralizeStat(modelCount, 'объект', 'объекта', 'объектов')}</span></div>;
+  const utilityDeviceCount = utilityDevices.filter((device) => device.floorId === activeFloorId).length;
+  return <div className="scene-stats"><span><b>{area.toFixed(1)}</b> м²</span><span><b>{floorRooms.length}</b> {pluralizeStat(floorRooms.length, 'блок', 'блока', 'блоков')}</span><span><b>{wallCount}</b> {pluralizeStat(wallCount, 'стена', 'стены', 'стен')}</span><span><b>{utilityCount}</b> {pluralizeStat(utilityCount, 'трасса', 'трассы', 'трасс')} · <b>{utilityDeviceCount}</b> {pluralizeStat(utilityDeviceCount, 'точка', 'точки', 'точек')}</span><span><b>{modelCount}</b> {pluralizeStat(modelCount, 'объект', 'объекта', 'объектов')}</span></div>;
 }
 
 function WelcomeBadge() {
@@ -104,6 +106,7 @@ export default function App() {
       else if (event.key === 'Escape') {
         if (tool === 'wall') completeWallChain();
         else if (tool === 'utility') completeUtilityChain();
+        else if (tool === 'utility-device') setTool('select');
         else { cancelPolygon(); select(null); }
       }
       else if (event.key === 'Enter') { completePolygon(); completeWallChain(); completeUtilityChain(); }
@@ -116,6 +119,7 @@ export default function App() {
       else if (event.key.toLowerCase() === 'p') setTool('polygon');
       else if (event.key.toLowerCase() === 'l') setTool('wall');
       else if (event.key.toLowerCase() === 'n') setTool('utility');
+      else if (event.key.toLowerCase() === 'i') setTool('utility-device');
       else if (event.key.toLowerCase() === 'd') toggleDimensions();
       else if (event.key === ']') rotateSelection(15);
       else if (event.key === '1') setCameraPreset('perspective');

@@ -1,7 +1,7 @@
 import { isSimplePolygon, polygonArea, polygonBounds, roomVertices } from './geometry';
 import { createDefaultRoofSettings, createDefaultSlabSettings } from './floorStructures';
 import { MAX_OPENINGS_PER_WALL, openingsOverlap, type OpeningLike } from './openings';
-import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, WallFinish, WallOpening } from '../types';
+import type { BuiltInModelKind, ModelAsset, ModelInstance, PlanFloor, PlanRoom, PlanUtilityDevice, PlanUtilityRoute, PlanWall, ProjectDocument, ProjectType, SiteSettings, StandaloneWallOpening, TextureAsset, WallFinish, WallOpening } from '../types';
 
 export const AUTOSAVE_KEY = 'spatial-forge.project.v1';
 export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024;
@@ -112,6 +112,17 @@ function readUtility(value: unknown, floorIds: Set<string>): PlanUtilityRoute | 
     startZ: value.startZ, endX: value.endX, endZ: value.endZ, elevation: value.elevation, diameter: value.diameter };
 }
 
+function readUtilityDevice(value: unknown, floorIds: Set<string>): PlanUtilityDevice | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.floorId !== 'string' || !floorIds.has(value.floorId)
+    || !['outlet', 'switch', 'panel', 'waterPoint', 'drain', 'radiator'].includes(String(value.kind))
+    || !finite(value.x, -200, 200) || !finite(value.z, -200, 200) || !finite(value.elevation, 0.01, 12)
+    || !finite(value.rotation, -Math.PI * 20, Math.PI * 20) || !finite(value.rating, 0.1, 1_000)) return undefined;
+  const name = text(value.name, 80);
+  if (!name) return undefined;
+  return { id: value.id, floorId: value.floorId, name, kind: value.kind as PlanUtilityDevice['kind'], x: value.x, z: value.z,
+    elevation: value.elevation, rotation: value.rotation, rating: value.rating };
+}
+
 function readOpening(value: unknown, roomsById: Map<string, PlanRoom>): WallOpening | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !idPattern.test(value.id) || typeof value.roomId !== 'string'
     || !roomsById.has(value.roomId) || typeof value.wallIndex !== 'number' || !Number.isInteger(value.wallIndex) || !['door', 'window'].includes(String(value.kind))
@@ -163,7 +174,8 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
     || !isRecord(value.wallFinishes) || Object.keys(value.wallFinishes).length > 2_000 || (value.openings !== undefined && !Array.isArray(value.openings))
     || (Array.isArray(value.openings) && value.openings.length > 1_000) || !Array.isArray(value.modelInstances)
     || value.modelInstances.length > 200 || (value.utilities !== undefined && !Array.isArray(value.utilities))
-    || (Array.isArray(value.utilities) && value.utilities.length > 2_000)) throw new Error('Файл планировки имеет неподдерживаемую структуру.');
+    || (Array.isArray(value.utilities) && value.utilities.length > 2_000) || (value.utilityDevices !== undefined && !Array.isArray(value.utilityDevices))
+    || (Array.isArray(value.utilityDevices) && value.utilityDevices.length > 2_000)) throw new Error('Файл планировки имеет неподдерживаемую структуру.');
   const name = text(value.name, 80);
   if (!name) throw new Error('В файле отсутствует название проекта.');
   const floors = value.floors.map(readFloor);
@@ -225,18 +237,22 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   if (utilities.some((utility) => !utility)) throw new Error('В файле есть некорректная инженерная трасса.');
   const validUtilities = utilities as PlanUtilityRoute[];
   if (new Set(validUtilities.map((utility) => utility.id)).size !== validUtilities.length) throw new Error('Идентификаторы инженерных трасс повторяются.');
+  const utilityDevices = (Array.isArray(value.utilityDevices) ? value.utilityDevices : []).map((device) => readUtilityDevice(device, floorIds));
+  if (utilityDevices.some((device) => !device)) throw new Error('В файле есть некорректная инженерная точка.');
+  const validUtilityDevices = utilityDevices as PlanUtilityDevice[];
+  if (new Set(validUtilityDevices.map((device) => device.id)).size !== validUtilityDevices.length) throw new Error('Идентификаторы инженерных точек повторяются.');
   return { version: 1, name, projectType: value.projectType as ProjectType,
     site: { width: value.site.width, depth: value.site.depth }, floors: validFloors, rooms: validRooms, walls: validWalls, wallOpenings: validWallOpenings,
-    wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[], utilities: validUtilities };
+    wallFinishes, openings: validOpenings, modelInstances: models as ModelInstance[], utilities: validUtilities, utilityDevices: validUtilityDevices };
 }
 
 const wallIdForOpening = (opening: Pick<WallOpening, 'roomId' | 'wallIndex'>) => `${opening.roomId}:wall:${opening.wallIndex}`;
 
-export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; walls: PlanWall[]; wallOpenings: StandaloneWallOpening[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[]; utilities?: PlanUtilityRoute[] }): ProjectDocument {
+export function createProjectDocument(input: { name: string; projectType: ProjectType; site: SiteSettings; floors: PlanFloor[]; rooms: PlanRoom[]; walls: PlanWall[]; wallOpenings: StandaloneWallOpening[]; wallFinishes: Record<string, WallFinish>; openings: WallOpening[]; modelInstances: ModelInstance[]; utilities?: PlanUtilityRoute[]; utilityDevices?: PlanUtilityDevice[] }): ProjectDocument {
   const wallFinishes = Object.fromEntries(Object.entries(input.wallFinishes).map(([id, finish]) => [id, { color: finish.color, ...(finish.textureId && uuidPattern.test(finish.textureId) ? { textureId: finish.textureId } : {}) }]));
   return { version: 1, name: input.name, projectType: input.projectType, site: input.site, floors: input.floors,
     rooms: input.rooms, walls: input.walls, wallOpenings: input.wallOpenings, wallFinishes, openings: input.openings, modelInstances: input.modelInstances,
-    utilities: input.utilities ?? [] };
+    utilities: input.utilities ?? [], utilityDevices: input.utilityDevices ?? [] };
 }
 
 export function saveAutosave(document: ProjectDocument) {

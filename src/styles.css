@@ -73,6 +73,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid #91a217; outline-
 .utility-kind-button.active small { background: var(--acid); color: var(--ink); }
 .utility-visibility { height: 39px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #e4e6df; color: #969c96; cursor: pointer; }
 .utility-visibility.visible { background: white; color: var(--ink); }
+.utility-device-heading { display: flex; align-items: center; justify-content: space-between; margin: 9px 1px 5px; }
+.utility-device-heading b { font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.utility-device-heading span { min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: #e8e9e3; color: var(--muted); font: 700 7px "DM Mono", monospace; }
+.utility-device-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.utility-device-grid button { position: relative; min-width: 0; min-height: 46px; display: grid; place-items: center; gap: 2px; padding: 5px 3px; border: 1px solid var(--line); border-radius: 7px; background: white; cursor: pointer; }
+.utility-device-grid button > span { height: 17px; }
+.utility-device-grid button b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 7px; }
+.utility-device-grid button small { position: absolute; top: 3px; right: 4px; color: var(--muted); font: 700 6px "DM Mono", monospace; }
+.utility-device-grid button.active { border-color: var(--ink); background: var(--ink); color: white; }
 .asset-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .asset-grid button { height: 70px; border: 1px solid var(--line); background: #fff; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 10px; font-weight: 700; cursor: pointer; }
 .asset-grid button:hover, .upload-button:hover { border-color: #a6ad93; background: #f5f7e9; }
@@ -251,6 +260,10 @@ kbd { font-family: "DM Mono", monospace; font-size: .9em; padding: 1px 4px; bord
 .utility-kind-tabs button { min-width: 0; min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 0 5px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 7px; font-weight: 700; cursor: pointer; }
 .utility-kind-tabs button > span { width: 7px; height: 7px; flex: none; border-radius: 50%; }
 .utility-kind-tabs button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.utility-device-type-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; }
+.utility-device-type-grid button { min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 7px; font-weight: 700; cursor: pointer; }
+.utility-device-type-grid button > span { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.utility-device-type-grid button.active { border-color: var(--ink); background: var(--ink); color: white; }
 .utility-summary { min-height: 38px; display: grid; grid-template-columns: 9px minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: white; }
 .utility-summary > span { width: 9px; height: 9px; border-radius: 50%; }
 .utility-summary b { font-size: 8px; }

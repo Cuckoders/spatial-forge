@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { BrickWall, Cable, ClipboardCopy, ClipboardPaste, Copy, DoorOpen, Droplets, House, Layers3, Move3D, PanelTop, Plus, RotateCw, Ruler, Trash2 } from 'lucide-react';
 
 import { roomArea, wallId } from '../lib/geometry';
-import { UTILITY_KINDS, utilityLength } from '../lib/utilities';
+import { UTILITY_DEVICE_KINDS, UTILITY_KINDS, utilityLength } from '../lib/utilities';
 import { useEditorStore } from '../store/editorStore';
-import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, UtilityKind, WallFinish, WallOpening } from '../types';
+import type { ObjectSelection, PlanFloor, Selection, StandaloneWallOpening, UtilityDeviceKind, UtilityKind, WallFinish, WallOpening } from '../types';
 
 const wallPalette = ['#E9E4DA', '#D7E2DA', '#DAD4E4', '#D9C7BC', '#65776B', '#262A28'];
 
@@ -52,7 +52,7 @@ function EmptyInspector() {
     <div className="inspector-empty"><Move3D size={28} /><h2>Выберите элемент</h2><p>Нажмите на пол, стену или объект в сцене, чтобы открыть его параметры.</p></div>
     {floor ? <><section className="inspector-section"><div className="inspector-title"><span>Активный этаж</span><Layers3 size={16} /></div><label className="floor-name-field"><span>Название</span><input defaultValue={floor.name} key={`${floor.id}:${floor.name}`} maxLength={80} onBlur={(event) => updateFloor(floor.id, { name: event.target.value })} /></label><NumericField label="Отметка" max={60} min={-20} onChange={(elevation) => updateFloor(floor.id, { elevation })} unit="м" value={floor.elevation} /><button className="duplicate-floor" onClick={duplicateActiveFloor} type="button"><Copy size={15} /> Дублировать этаж со всем содержимым</button></section><FloorStructuresEditor floor={floor} /></> : null}
     <section className="inspector-section"><div className="inspector-title"><span>Площадка</span><Ruler size={16} /></div><div className="field-row"><NumericField label="Ширина" max={200} min={4} onChange={(width) => updateSite({ width })} unit="м" value={site.width} /><NumericField label="Глубина" max={200} min={4} onChange={(depth) => updateSite({ depth })} unit="м" value={site.depth} /></div></section>
-    <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Shift</kbd> группа · <kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>W/E/S</kbd> трансформация · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
+    <div className="shortcut-card"><b>Быстрые клавиши</b><p><kbd>Shift</kbd> группа · <kbd>Del</kbd> удалить · <kbd>Esc</kbd> снять выбор</p><p><kbd>N</kbd> трасса · <kbd>I</kbd> точки · <kbd>D</kbd> размеры · <kbd>1–3</kbd> камера</p></div>
   </>;
 }
 
@@ -197,6 +197,30 @@ function UtilityInspector({ id }: { id: string }) {
   </>;
 }
 
+function UtilityDeviceInspector({ id }: { id: string }) {
+  const device = useEditorStore((state) => state.utilityDevices.find((item) => item.id === id));
+  const updateUtilityDevice = useEditorStore((state) => state.updateUtilityDevice);
+  const duplicateUtilityDevice = useEditorStore((state) => state.duplicateUtilityDevice);
+  const removeUtilityDevice = useEditorStore((state) => state.removeUtilityDevice);
+  if (!device) return <EmptyInspector />;
+  const style = UTILITY_DEVICE_KINDS[device.kind];
+  return <>
+    <div className="inspector-head"><span className="selection-tag">Инженерная точка</span><input aria-label="Название инженерной точки" maxLength={80} onChange={(event) => updateUtilityDevice(device.id, { name: event.target.value })} value={device.name} /></div>
+    <section className="inspector-section"><div className="inspector-title"><span>Тип точки</span><Cable size={16} /></div>
+      <div aria-label="Тип инженерной точки" className="utility-device-type-grid" role="group">{(Object.keys(UTILITY_DEVICE_KINDS) as UtilityDeviceKind[]).map((kind) => <button aria-pressed={device.kind === kind} className={device.kind === kind ? 'active' : ''} key={kind} onClick={() => updateUtilityDevice(device.id, { kind, rating: UTILITY_DEVICE_KINDS[kind].defaultRating })} type="button"><span style={{ background: UTILITY_DEVICE_KINDS[kind].color }} />{UTILITY_DEVICE_KINDS[kind].shortLabel}</button>)}</div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Положение</span><Move3D size={16} /></div>
+      <div className="field-row"><NumericField label="X" max={200} min={-200} onChange={(x) => updateUtilityDevice(device.id, { x })} unit="м" value={device.x} /><NumericField label="Z" max={200} min={-200} onChange={(z) => updateUtilityDevice(device.id, { z })} unit="м" value={device.z} /></div>
+      <div className="field-row"><NumericField ariaLabel="Высота инженерной точки" label="Высота" max={12} min={0.01} onChange={(elevation) => updateUtilityDevice(device.id, { elevation })} step={0.01} unit="м" value={device.elevation} /><NumericField label="Поворот" max={360} min={-360} onChange={(rotation) => updateUtilityDevice(device.id, { rotation: rotation * Math.PI / 180 })} step={1} unit="°" value={device.rotation * 180 / Math.PI} /></div>
+    </section>
+    <section className="inspector-section"><div className="inspector-title"><span>Характеристика</span><Ruler size={16} /></div>
+      <NumericField ariaLabel={style.ratingLabel} label={style.ratingLabel} max={1000} min={0.1} onChange={(rating) => updateUtilityDevice(device.id, { rating })} step={style.ratingUnit === 'мм' ? 1 : 0.1} unit={style.ratingUnit} value={device.rating} />
+      <div className="utility-summary"><span style={{ background: style.color }} /><b>{style.label}</b><small>{UTILITY_KINDS[style.utilityKind].label}</small></div>
+    </section>
+    <div className="inspector-actions"><button onClick={() => duplicateUtilityDevice(device.id)} type="button"><Copy size={16} /> Копировать</button><button className="danger" onClick={() => removeUtilityDevice(device.id)} type="button"><Trash2 size={16} /> Удалить</button></div>
+  </>;
+}
+
 function BoxIcon() { return <span className="mini-swatch" />; }
 
 function ModelInspector({ id }: { id: string }) {
@@ -252,5 +276,5 @@ function ProjectClipboardPanel({ selection }: { selection: Selection | null }) {
 
 export function Inspector() {
   const selection = useEditorStore((state) => state.selection);
-  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'utility' ? <UtilityInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
+  return <aside className="side-panel inspector"><div className="panel-label">Инспектор <span>точные параметры</span></div>{!selection ? <EmptyInspector /> : selection.kind === 'room' ? <RoomInspector id={selection.id} /> : selection.kind === 'vertex' ? <RoomInspector id={selection.roomId} selectedVertexIndex={selection.vertexIndex} /> : selection.kind === 'wall' ? <WallInspector roomId={selection.roomId} wallIndex={selection.wallIndex} /> : selection.kind === 'partition' ? <PartitionInspector id={selection.id} /> : selection.kind === 'utility' ? <UtilityInspector id={selection.id} /> : selection.kind === 'utility-device' ? <UtilityDeviceInspector id={selection.id} /> : selection.kind === 'group' ? <GroupInspector items={selection.items} /> : <ModelInspector id={selection.id} />}<ProjectClipboardPanel selection={selection} /></aside>;
 }

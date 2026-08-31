@@ -4,7 +4,8 @@ import { Armchair, BedDouble, Box, BrickWall, Cable, Cuboid, Droplets, Eye, EyeO
 import { deletePersistedAsset, persistAsset } from '../lib/assetStorage';
 import { createModelAsset, createTextureAsset } from '../lib/files';
 import { useEditorStore } from '../store/editorStore';
-import type { BuiltInModelKind, EditorTool, UtilityKind } from '../types';
+import { UTILITY_DEVICE_KINDS } from '../lib/utilities';
+import type { BuiltInModelKind, EditorTool, UtilityDeviceKind, UtilityKind } from '../types';
 
 const tools: Array<{ id: EditorTool; label: string; hint: string; icon: typeof MousePointer2 }> = [
   { id: 'select', label: 'Выбор', hint: 'V', icon: MousePointer2 },
@@ -28,6 +29,11 @@ const utilityKinds: Array<{ id: UtilityKind; label: string; icon: typeof Cable; 
   { id: 'heating', label: 'Отопление', icon: Flame, color: '#D8583F' },
 ];
 
+const utilityDeviceKinds: Array<{ id: UtilityDeviceKind; icon: typeof Cable }> = [
+  { id: 'outlet', icon: Cable }, { id: 'switch', icon: MousePointer2 }, { id: 'panel', icon: Box },
+  { id: 'waterPoint', icon: Droplets }, { id: 'drain', icon: MoveUpRight }, { id: 'radiator', icon: Flame },
+];
+
 function fileSize(bytes: number) { return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`; }
 
 export function ToolPanel() {
@@ -42,11 +48,14 @@ export function ToolPanel() {
   const utilitySegmentCount = useEditorStore((state) => state.draftUtilitySegmentCount);
   const utilityVisibility = useEditorStore((state) => state.utilityVisibility);
   const utilities = useEditorStore((state) => state.utilities);
+  const utilityDevices = useEditorStore((state) => state.utilityDevices);
+  const utilityDeviceKind = useEditorStore((state) => state.utilityDeviceKind);
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const textures = useEditorStore((state) => state.textures);
   const modelAssets = useEditorStore((state) => state.modelAssets);
   const setTool = useEditorStore((state) => state.setTool);
   const setUtilityKind = useEditorStore((state) => state.setUtilityKind);
+  const setUtilityDeviceKind = useEditorStore((state) => state.setUtilityDeviceKind);
   const toggleUtilityVisibility = useEditorStore((state) => state.toggleUtilityVisibility);
   const addTexture = useEditorStore((state) => state.addTexture);
   const removeTexture = useEditorStore((state) => state.removeTexture);
@@ -103,7 +112,9 @@ export function ToolPanel() {
             <button aria-label={`${visible ? 'Скрыть' : 'Показать'}: ${item.label}`} aria-pressed={visible} className={`utility-visibility${visible ? ' visible' : ''}`} onClick={() => toggleUtilityVisibility(item.id)} title={`${visible ? 'Скрыть' : 'Показать'} трассы`} type="button">{visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
           </div>; })}
         </div>
-        <p className="panel-note">{tool === 'utility' ? `${utilitySegmentCount ? `Продолжайте трассу · сегментов ${utilitySegmentCount}` : 'Укажите начальную точку'}. ЛКМ — следующая точка, Enter или Escape — завершить.` : 'Выберите тип сети и прокладывайте её последовательными сегментами по сетке 0,5 м.'}</p>
+        <div className="utility-device-heading"><b>Точки подключения</b><span>{utilityDevices.filter((device) => device.floorId === activeFloorId).length}</span></div>
+        <div className="utility-device-grid">{utilityDeviceKinds.map((item) => { const Icon = item.icon; const style = UTILITY_DEVICE_KINDS[item.id]; const count = utilityDevices.filter((device) => device.floorId === activeFloorId && device.kind === item.id).length; return <button aria-pressed={tool === 'utility-device' && utilityDeviceKind === item.id} className={tool === 'utility-device' && utilityDeviceKind === item.id ? 'active' : ''} key={item.id} onClick={() => { setUtilityDeviceKind(item.id); setTool('utility-device'); }} type="button"><span style={{ color: style.color }}><Icon size={15} /></span><b>{style.shortLabel}</b>{count ? <small>{count}</small> : null}</button>; })}</div>
+        <p className="panel-note">{tool === 'utility' ? `${utilitySegmentCount ? `Продолжайте трассу · сегментов ${utilitySegmentCount}` : 'Укажите начальную точку'}. ЛКМ — следующая точка, Enter или Escape — завершить.` : tool === 'utility-device' ? `Размещайте «${UTILITY_DEVICE_KINDS[utilityDeviceKind].label}» по сетке. После установки параметры доступны справа.` : 'Выберите трассу или точку подключения и разместите её на активном этаже.'}</p>
       </section>
 
       <section>
